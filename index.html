@@ -8,6 +8,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Daily">
 <title>Daily</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='40' fill='%231D6FA3'/%3E%3Ctext x='90' y='122' font-family='Helvetica,Arial' font-size='96' font-weight='bold' fill='white' text-anchor='middle'%3E%E2%82%B1%3C/text%3E%3C/svg%3E">
 <style>
 :root{
@@ -38,11 +41,11 @@ html{height:-webkit-fill-available}
 body{
   margin:0;padding:0;min-height:100vh;min-height:100dvh;
   background:var(--ground); color:var(--ink);
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  font-family:Manrope,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
   font-size:16px; line-height:1.45; -webkit-font-smoothing:antialiased;
   overscroll-behavior-y:none;
 }
-.num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+.num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum","ss01";letter-spacing:-.01em}
 
 #app{max-width:560px;margin:0 auto;padding:calc(var(--safe-t) + 6px) 16px calc(var(--navh) + var(--safe-b) + 96px)}
 .vhead{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:12px 0 14px}
@@ -79,7 +82,7 @@ nav button[aria-current="true"]{color:var(--accent)}
 
 .hero{text-align:center;padding:24px 16px 20px;background:var(--surface);border:1px solid var(--rule);border-radius:16px;margin-bottom:11px}
 .hero .lbl{font-size:10.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
-.hero .big{font-size:clamp(42px,14.5vw,58px);font-weight:700;letter-spacing:-.035em;line-height:1.05;margin:7px 0 4px}
+.hero .big{font-size:clamp(42px,14.5vw,58px);font-weight:800;letter-spacing:-.035em;line-height:1.05;margin:7px 0 4px}
 .hero .big.over{color:var(--alarm)}
 .hero .note{font-size:13px;color:var(--muted)}
 .bar{height:7px;border-radius:4px;background:var(--surface-3);overflow:hidden;margin:15px 0 8px}
@@ -189,7 +192,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 <script>
 "use strict";
 /* ===== Daily v1.1 — everything stays in this browser. No personal data in this file. ===== */
-var VER="1.7", KEY="daily.v1";
+var VER="1.10", KEY="daily.v1";
 var $=function(s,r){ return (r||document).querySelector(s); };
 var el=function(t){ return document.createElement(t); };
 var ACCENTS=["#1D6FA3","#1F6B4F","#8A3E9E","#C2740A","#A8341E","#2B6DB0","#0E7C86","#B03A6B"];
@@ -315,7 +318,7 @@ function goalDue(G){
 function whenLabel(w){ return w==="eom"?"end of month only":(w==="mid"?"15th only":"every payday"); }
 function goalsUnfunded(){ var s=0; DB.goals.forEach(function(g){ if(goalDue(g) && g.fundedCycle!==DB.cycle.start) s+=(+g.perCycle||0); }); return s; }
 function isCredit(id){ var A=acct(id); return !!(A&&A.type==="credit"); }
-function txnsOn(d){ var s=0,n=0; DB.txns.forEach(function(T){ if(T.date===d){ n++; if(!isCredit(T.acct)) s+=+T.amt; } }); return {sum:s,n:n}; }
+function txnsOn(d){ var s=0,n=0; DB.txns.forEach(function(T){ if(T.date===d){ if(T.kind==="xfer") return; n++; if(!isCredit(T.acct) && T.kind!=="inc") s+=+T.amt; } }); return {sum:s,n:n}; }
 function spentOn(d){
   var t=txnsOn(d);
   if(t.n) return t.sum;                       // logged in the app wins
@@ -337,7 +340,8 @@ function notSetUp(){
   return !anyBal && DB.txns.length===0;
 }
 function freeToSpend(){ return onHand() - committedTotal() - fareReserve() - goalsUnfunded() + (+DB.cycle.adjust||0); }
-function perDayBase(){ var d=daysLeft(); return d>0?freeToSpend()/d:freeToSpend(); }
+function shortfall(){ var f=freeToSpend(); return f<0 ? -f : 0; }
+function perDayBase(){ var f=freeToSpend(); if(f<0) return 0; var d=daysLeft(); return d>0?f/d:f; }
 function todayAllowance(){ return perDayBase() + fareFor(todayISO()) - spentOn(todayISO()); }
 
 /* ================= views ================= */
@@ -389,12 +393,12 @@ function renderToday(){
   }
   h+='<div class="hero"><div class="lbl">You can spend</div>'
     +'<div class="big num'+(allow<0?" over":"")+'">'+P(allow)+'</div>'
-    +'<div class="note">'+(freeToSpend()<0?("Your loans, fare and savings come to "+P(-freeToSpend())+" more than you have. Something has to give.")
+    +'<div class="note">'+(shortfall()?("You are "+P(shortfall())+" short this cycle. Loans, fare and savings come to more than you hold, so there is nothing to divide.")
         :allow<0?("Over by "+P(-allow)+". Tomorrow shrinks.")
         :(fare? (P(base)+" to spend + "+P(fare)+" fare, office day")
               : (daysLeft()+" day"+(daysLeft()===1?"":"s")+" left in this cycle")))+'</div>'
     +'<div class="bar"><i class="'+(spent>cap?"hot":"")+'" style="width:'+pct+'%"></i></div>'
-    +'<div class="split"><span class="num">'+P(spent)+' spent today</span><span class="num">'+P(cap)+' today\u2019s cap</span></div></div>';
+    +'<div class="split"><span class="num">'+P(spent)+' spent today</span><span class="num">'+(shortfall()?"nothing free":P(cap)+" today\u2019s cap")+'</span></div></div>';
 
   h+='<div class="card"><h2>Suggestions</h2><div class="chips" id="quick">';
   DB.cats.forEach(function(c){ if(c.def) h+='<button class="chip" data-cat="'+c.id+'"><b>'+esc(c.name)+'</b><span class="num">'+P(c.def)+'</span></button>'; });
@@ -410,7 +414,7 @@ function renderToday(){
   var list=filterTxns(recFilter);
   if(!list.length) h+='<div class="empty">Nothing logged'+(recFilter==="today"?" today":"")+'.</div>';
   else{
-    var tot=0; list.forEach(function(T){ if(!isCredit(T.acct)) tot+=+T.amt; });
+    var tot=0; list.forEach(function(T){ if(T.kind==="xfer"||isCredit(T.acct)) return; tot += (T.kind==="inc"? -(+T.amt) : +T.amt); });
     list.slice(0,40).forEach(function(T){
       var C=cat(T.cat),A=acct(T.acct);
       h+='<div class="row"><div class="g"><div class="t">'+esc(C?C.name:"Other")+'</div>'
@@ -452,6 +456,7 @@ function afford(){
 function renderMoney(){
   var v=$("#v-money"),h="";
   h+='<div class="vhead"><h1>Money</h1><span class="sub num">'+P(onHand())+' on hand</span></div>';
+  h+='<div class="btnrow" style="margin:0 0 12px"><button class="btn sec" id="xferBtn">Move money between accounts</button></div>';
 
   DB.envelopes.forEach(function(E){
     var tot=envTotal(E), sp=envSpent(E.id);
@@ -490,6 +495,7 @@ function renderMoney(){
   }
   v.innerHTML=h;
   v.querySelectorAll("[data-bal]").forEach(function(b){ b.addEventListener("click",function(){ openBal(b.dataset.bal); }); });
+  $("#xferBtn").addEventListener("click",function(){ openTxn(null,"xfer"); });
 }
 function envSpent(eid){
   var s=0;
@@ -598,7 +604,7 @@ function renderLoans(){
     });
     if(list.length>60) h+='<div class="hint">Showing 60 of '+list.length+'.</div>';
   }
-  h+='<div class="btnrow"><button class="btn sec" id="addLoan">Add a payment</button></div></div>';
+  h+='<div class="btnrow"><button class="btn sec" id="addLoan">Add a loan</button><button class="btn sec" id="addPay">One payment</button></div></div>';
 
   v.innerHTML=h;
   $("#loanSeg").addEventListener("click",function(e){ var b=e.target.closest("button"); if(b){ loanFilter=b.dataset.k; renderLoans(); } });
@@ -609,9 +615,42 @@ function renderLoans(){
       save(); renderLoans(); toast("Updated");
     });
   });
-  $("#addLoan").addEventListener("click",function(){ openLoan("new"); });
+  $("#addLoan").addEventListener("click",openLoanPlan);
+  $("#addPay").addEventListener("click",function(){ openLoan("new"); });
 }
 function sg2(k,label){ return '<button data-k="'+k+'" aria-pressed="'+(loanFilter===k)+'">'+label+'</button>'; }
+function openLoanPlan(){
+  var body=fld("Lender","plLen","text","")+fld("Loan name","plNam","text","")
+    +'<div class="two">'+fld("Number of payments","plN","number",6)+fld("Amount each","plAmt","number","")+'</div>'
+    +fld("Last payment (leave blank if the same)","plLast","number","")
+    +fld("First payment due","plDue","date",todayISO())
+    +sel("How often","plFreq",[["monthly","Monthly, same day"],["semi","Twice a month, 15th and end of month"]],"monthly")
+    +'<div class="hint">This creates the whole schedule in one go. Useful when the final payment is a different amount, which is usually the case.</div>';
+  openSheet("Add a loan",body,function(){
+    var n=+$("#plN").value||0, amt=+$("#plAmt").value||0, last=+$("#plLast").value||0;
+    if(!n||!amt){ toast("Need a count and an amount"); return false; }
+    var lender=$("#plLen").value, name=$("#plNam").value||"Loan";
+    var freq=$("#plFreq").value, d=parse($("#plDue").value);
+    for(var i=0;i<n;i++){
+      var a = (i===n-1 && last) ? last : amt;
+      DB.loans.push({id:uid(),lender:lender,loan:name,amt:a,due:iso(d),paid:false});
+      if(freq==="monthly"){
+        var day=d.getDate(), y=d.getFullYear(), m=d.getMonth()+1;
+        d=new Date(y,m,Math.min(day,lastDay(y,m)));
+      } else {
+        if(d.getDate()>=15) d=new Date(d.getFullYear(),d.getMonth(),lastDay(d.getFullYear(),d.getMonth()));
+        else d=new Date(d.getFullYear(),d.getMonth(),15);
+        if(d.getDate()!==15 && d.getDate()!==lastDay(d.getFullYear(),d.getMonth())) d.setDate(15);
+        if(iso(d)<=DB.loans[DB.loans.length-1].due){
+          var y2=d.getFullYear(), m2=d.getMonth();
+          d = d.getDate()>=15 ? new Date(y2,m2+1,15) : new Date(y2,m2,lastDay(y2,m2));
+        }
+      }
+    }
+    toast(n+" payments added");
+    return true;
+  });
+}
 function openLoan(id){
   var L = id==="new" ? {id:uid(),lender:"",loan:"",amt:0,due:todayISO(),paid:false} : DB.loans.filter(function(x){return x.id===id;})[0];
   var body=fld("Lender","lLen","text",L.lender)+fld("Loan name","lNam","text",L.loan)
@@ -636,7 +675,9 @@ function renderSetup(){
     +fld("Pay for this cycle","cin","number",DB.cycle.income||"")
     +'<div class="hint" style="margin-top:-4px;margin-bottom:12px">Shown on Today as a reminder. What the daily number actually uses is your account balances, since that is the money you really have.</div>'
     +sel("Repeat","crule",[["semimonthly","15th and end of month"],["monthly","Monthly"],["fortnightly","Every two weeks"],["custom","Custom, I set it myself"]],DB.settings.rule)
-    +'<div class="btnrow"><button class="btn sec" id="saveCycle">Save</button><button class="btn sec" id="newCycle">Start next cycle</button></div></div>';
+    +'<div class="hint" style="margin-top:0">Changes here save themselves. Nothing on this screen ever deletes anything.</div>'
+    +'<div class="btnrow"><button class="btn sec" id="newCycle">Payday \u2014 move to next cycle</button></div>'
+    +'<div class="hint">Tap that on the 15th and the 30th. It rolls the dates forward, picks up whichever loans fall in the new window, and unlocks your savings to fund again. Your balances, transactions and loan history all stay exactly where they are.</div></div>';
 
   h+='<div class="card"><h2>Where the money goes</h2>'
     +erow("Money on hand",onHand(),"money","across your accounts")
@@ -735,10 +776,15 @@ function officeGrid(){
   return h;
 }
 function wireSetup(v){
-  $("#saveCycle").addEventListener("click",function(){
-    DB.cycle.start=$("#cs").value; DB.cycle.end=$("#ce").value;
-    DB.cycle.income=+$("#cin").value||0; DB.settings.rule=$("#crule").value;
-    DB.settings.farePerDay=+$("#fare").value||0; save(); render(); toast("Saved");
+  function autoCycle(){
+    DB.cycle.start=$("#cs").value||DB.cycle.start;
+    DB.cycle.end=$("#ce").value||DB.cycle.end;
+    DB.cycle.income=+$("#cin").value||0;
+    DB.settings.rule=$("#crule").value;
+    save(); render(); toast("Saved");
+  }
+  ["cs","ce","cin","crule"].forEach(function(id){
+    var n=$("#"+id); if(n) n.addEventListener("change",autoCycle);
   });
   $("#newCycle").addEventListener("click",rollCycle);
   $("#fare").addEventListener("change",function(){ DB.settings.farePerDay=+this.value||0; save(); });
@@ -831,30 +877,42 @@ function sel(k,id,opts,cur){
   opts.forEach(function(o){ h+='<option value="'+o[0]+'"'+(cur===o[0]?" selected":"")+'>'+o[1]+'</option>'; });
   return h+'</select></label>';
 }
-function openTxn(id){
+function openTxn(id,preKind){
   var T = id ? DB.txns.filter(function(x){ return x.id===id; })[0] : null;
   var cats=DB.cats.map(function(c){ return [c.id,c.name]; });
   var accts=DB.accounts.map(function(a){ return [a.id,a.name+(a.type==="credit"?" (credit)":"")]; });
-  var body=fld("Amount","txAmt","number",T?T.amt:"")
-    +sel("What","txCat",cats,T?T.cat:DB.cats[0].id)
-    +sel("Paid from","txAcct",accts,T?T.acct:DB.accounts[0].id)
+  var body=sel("Type","txKind",[["exp","Money out"],["inc","Money in"],["xfer","Transfer between accounts"]],T?(T.kind||"exp"):(preKind||"exp"))
+    +fld("Amount","txAmt","number",T?T.amt:"")
+    +'<div id="txCatWrap">'+sel("What","txCat",cats,T?T.cat:DB.cats[0].id)+'</div>'
+    +sel("From","txAcct",accts,T?T.acct:DB.accounts[0].id)
+    +'<div id="txToWrap">'+sel("To","txTo",accts,(T&&T.to)?T.to:(DB.accounts[1]||DB.accounts[0]).id)+'</div>' 
     +fld("Date","txDate","date",T?T.date:todayISO())
     +fld("Note (optional)","txNote","text",T?T.note:"")
     +(T?'<div class="btnrow"><button class="btn dan" id="txDel">Delete this</button></div>':'');
-  openSheet(T?"Edit spending":"Log spending",body,function(){
+  openSheet(T?"Edit entry":(preKind==="xfer"?"Move money":"Log spending"),body,function(){
     var a=+$("#txAmt").value; if(!a){ toast("Enter an amount"); return false; }
     if(T){
-      var oa=acct(T.acct);
-      if(oa) oa.bal = oa.type==="credit" ? (+oa.bal||0)-(+T.amt) : (+oa.bal||0)+(+T.amt);
-      T.amt=a; T.cat=$("#txCat").value; T.acct=$("#txAcct").value; T.date=$("#txDate").value; T.note=$("#txNote").value;
-      var na=acct(T.acct);
-      if(na) na.bal = na.type==="credit" ? (+na.bal||0)+a : (+na.bal||0)-a;
+      applyTxn(T,-1);
+      T.kind=$("#txKind").value; T.amt=a; T.cat=$("#txCat").value; T.acct=$("#txAcct").value;
+      T.to=$("#txTo").value; T.date=$("#txDate").value; T.note=$("#txNote").value;
+      if(T.kind==="xfer" && T.to===T.acct){ toast("Pick two different accounts"); applyTxn(T,1); return false; }
+      applyTxn(T,1);
       toast("Updated");
     } else {
-      addTxn({amt:a,cat:$("#txCat").value,acct:$("#txAcct").value,date:$("#txDate").value,note:$("#txNote").value});
+      var k=$("#txKind").value;
+      if(k==="xfer" && $("#txTo").value===$("#txAcct").value){ toast("Pick two different accounts"); return false; }
+      addTxn({kind:k,amt:a,cat:$("#txCat").value,acct:$("#txAcct").value,to:$("#txTo").value,date:$("#txDate").value,note:$("#txNote").value});
     }
     return true;
   });
+  function syncKind(){
+    var k=$("#txKind").value;
+    $("#txCatWrap").style.display = k==="xfer" ? "none" : "";
+    $("#txToWrap").style.display  = k==="xfer" ? "" : "none";
+    var lbl=$("#txAcct").parentNode.querySelector(".k");
+    if(lbl) lbl.textContent = k==="xfer" ? "From" : (k==="inc" ? "Into" : "Paid from");
+  }
+  $("#txKind").addEventListener("change",syncKind); syncKind();
   if(T){ var d=$("#txDel"); if(d) d.addEventListener("click",function(){ closeSheet(); delTxn(T.id); }); }
 }
 function openAcct(id){
@@ -966,12 +1024,28 @@ function openFix(id){
 }
 
 /* ---------- transactions ---------- */
+function applyTxn(T,dir){
+  var amt=+T.amt||0;
+  if(T.kind==="xfer"){
+    var F=acct(T.acct), X=acct(T.to);
+    if(F) F.bal = (+F.bal||0) + dir*(F.type==="credit" ?  amt : -amt);
+    if(X) X.bal = (+X.bal||0) + dir*(X.type==="credit" ? -amt :  amt);
+    return;
+  }
+  var A=acct(T.acct); if(!A) return;
+  var sign = (T.kind==="inc") ? 1 : -1;
+  if(A.type==="credit") sign = -sign;
+  A.bal = (+A.bal||0) + dir*sign*amt;
+}
 function addTxn(t){
+  if(!t.kind) t.kind="exp";
   t.id=uid(); DB.txns.push(t);
+  applyTxn(t,1);
   var A=acct(t.acct);
-  if(A) A.bal = A.type==="credit" ? (+A.bal||0)+(+t.amt) : (+A.bal||0)-(+t.amt);
   save(); render();
-  if(A&&A.type==="credit") toast(P(t.amt)+" on "+A.name+". Bill now "+P(A.bal)+".");
+  if(t.kind==="xfer"){ var X=acct(t.to); toast(P(t.amt)+" moved"+(A&&X?" from "+A.name+" to "+X.name:"")+"."); }
+  else if(t.kind==="inc") toast(P(t.amt)+" in"+(A?" to "+A.name:"")+".");
+  else if(A&&A.type==="credit") toast(P(t.amt)+" on "+A.name+". Bill now "+P(A.bal)+".");
   else toast(P(t.amt)+" logged. "+P(todayAllowance())+" left today.",function(){ delTxn(t.id); });
 }
 function quickLog(c){
@@ -982,8 +1056,7 @@ function quickLog(c){
 }
 function delTxn(id){
   for(var i=0;i<DB.txns.length;i++) if(DB.txns[i].id===id){
-    var T=DB.txns[i],A=acct(T.acct);
-    if(A) A.bal = A.type==="credit" ? (+A.bal||0)-(+T.amt) : (+A.bal||0)+(+T.amt);
+    applyTxn(DB.txns[i],-1);
     DB.txns.splice(i,1); save(); render(); toast("Removed"); return;
   }
 }

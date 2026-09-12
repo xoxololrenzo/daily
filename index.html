@@ -1,0 +1,1034 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Daily">
+<meta name="theme-color" content="#F3F4F1">
+<title>Daily</title>
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='40' fill='%231D6FA3'/%3E%3Ctext x='90' y='122' font-family='Helvetica,Arial' font-size='96' font-weight='bold' fill='white' text-anchor='middle'%3E%E2%82%B1%3C/text%3E%3C/svg%3E">
+<style>
+:root{
+  --ground:#F3F4F1; --surface:#FFFFFF; --surface-2:#EAECE8; --surface-3:#E1E4DF;
+  --ink:#171A1C; --ink-2:#3D4548; --muted:#6B736F;
+  --rule:#D9DCD6; --rule-2:#C3C8C1;
+  --blue:#1D6FA3; --amber:#C2740A; --alarm:#A8341E; --good:#1F6B4F;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#15181A; --surface:#1E2225; --surface-2:#262C30; --surface-3:#2F363A;
+    --ink:#E6E9E6; --ink-2:#C3C9C5; --muted:#939C98;
+    --rule:#2C3336; --rule-2:#3C4448;
+    --blue:#57A5D2; --amber:#C9901F; --alarm:#E27E66; --good:#4FAE86;
+    --theme-color:#15181A;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#15181A; --surface:#1E2225; --surface-2:#262C30; --surface-3:#2F363A;
+  --ink:#E6E9E6; --ink-2:#C3C9C5; --muted:#939C98;
+  --rule:#2C3336; --rule-2:#3C4448;
+  --blue:#57A5D2; --amber:#C9901F; --alarm:#E27E66; --good:#4FAE86;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;height:100%}
+body{
+  background:var(--ground); color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  font-size:16px; line-height:1.45; overscroll-behavior-y:none;
+  -webkit-font-smoothing:antialiased;
+}
+.num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+
+/* ---------- shell ---------- */
+#app{max-width:560px;margin:0 auto;padding:calc(var(--safe-t) + 8px) 16px calc(84px + var(--safe-b));min-height:100%}
+.vhead{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:10px 0 16px}
+.vhead h1{margin:0;font-size:21px;font-weight:700;letter-spacing:-.02em}
+.vhead .sub{font-size:13px;color:var(--muted)}
+.view{display:none}
+.view.on{display:block}
+
+nav{
+  position:fixed;left:0;right:0;bottom:0;z-index:40;
+  background:var(--surface);border-top:1px solid var(--rule);
+  padding-bottom:var(--safe-b);
+  display:grid;grid-template-columns:repeat(4,1fr);
+}
+nav button{
+  background:none;border:none;padding:9px 4px 8px;font:inherit;font-size:10.5px;font-weight:600;
+  color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;
+  letter-spacing:.02em;
+}
+nav button svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+nav button[aria-current="true"]{color:var(--blue)}
+
+/* ---------- cards ---------- */
+.card{background:var(--surface);border:1px solid var(--rule);border-radius:14px;padding:16px;margin-bottom:12px}
+.card h2{margin:0 0 12px;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.card.flat{background:none;border:none;padding:0}
+
+/* ---------- hero ---------- */
+.hero{text-align:center;padding:26px 16px 22px;background:var(--surface);border:1px solid var(--rule);border-radius:16px;margin-bottom:12px}
+.hero .lbl{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.hero .big{font-size:clamp(44px,15vw,60px);font-weight:700;letter-spacing:-.035em;line-height:1.05;margin:8px 0 4px}
+.hero .big.over{color:var(--alarm)}
+.hero .note{font-size:13.5px;color:var(--muted)}
+.hero .bar{height:7px;border-radius:4px;background:var(--surface-3);overflow:hidden;margin:16px 0 8px}
+.hero .bar i{display:block;height:100%;background:var(--blue);border-radius:4px;transition:width .25s}
+.hero .bar i.hot{background:var(--alarm)}
+.hero .split{display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
+
+/* ---------- rows ---------- */
+.row{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--rule)}
+.row:last-child{border-bottom:none}
+.row .g{flex:1;min-width:0}
+.row .t{font-size:15px;font-weight:500}
+.row .s{font-size:12.5px;color:var(--muted);margin-top:1px}
+.row .v{font-weight:600;white-space:nowrap}
+.row .v.neg{color:var(--alarm)} .row .v.pos{color:var(--good)}
+.dot{width:9px;height:9px;border-radius:50%;flex:none}
+
+/* ---------- chips ---------- */
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{
+  background:var(--surface-2);border:1px solid var(--rule);border-radius:11px;
+  padding:10px 12px;font:inherit;font-size:13.5px;color:var(--ink);cursor:pointer;
+  display:flex;flex-direction:column;align-items:flex-start;gap:1px;min-width:80px;flex:1 1 auto;
+}
+.chip:active{background:var(--surface-3)}
+.chip b{font-weight:600;font-size:13.5px}
+.chip span{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.chip.add{align-items:center;justify-content:center;color:var(--blue);font-weight:600;min-width:52px;flex:0 0 auto}
+
+/* ---------- buttons / inputs ---------- */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  background:var(--blue);color:#fff;border:none;border-radius:11px;
+  padding:13px 18px;font:inherit;font-size:15px;font-weight:600;cursor:pointer;width:100%;
+}
+.btn.sec{background:var(--surface-2);color:var(--ink);border:1px solid var(--rule-2)}
+.btn.dan{background:var(--alarm)}
+.btn:active{opacity:.85}
+.btn.sm{width:auto;padding:8px 13px;font-size:13.5px;border-radius:9px}
+.btnrow{display:flex;gap:8px;margin-top:10px}
+label.f{display:block;margin-bottom:12px}
+label.f .k{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:5px;letter-spacing:.02em}
+input,select{
+  width:100%;background:var(--ground);color:var(--ink);border:1px solid var(--rule-2);
+  border-radius:10px;padding:11px 12px;font:inherit;font-size:16px;
+}
+input:focus,select:focus{outline:2px solid var(--blue);outline-offset:1px;border-color:transparent}
+input[type=range]{padding:0;border:none;background:none;accent-color:var(--blue)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
+/* ---------- calendar ---------- */
+.calhead{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:5px}
+.calhead div{text-align:center;font-size:10.5px;font-weight:700;color:var(--muted);letter-spacing:.05em}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.day{
+  aspect-ratio:1/1;border-radius:9px;background:var(--surface);border:1px solid var(--rule);
+  padding:4px 3px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+  font-variant-numeric:tabular-nums;
+}
+.day .d{font-size:10.5px;color:var(--muted);line-height:1}
+.day .a{font-size:11.5px;font-weight:700;line-height:1.1}
+.day.blank{background:none;border:none}
+.day.under{background:color-mix(in srgb,var(--good) 13%,var(--surface));border-color:color-mix(in srgb,var(--good) 30%,var(--rule))}
+.day.over{background:color-mix(in srgb,var(--alarm) 13%,var(--surface));border-color:color-mix(in srgb,var(--alarm) 32%,var(--rule))}
+.day.today{outline:2px solid var(--blue);outline-offset:-2px}
+.day.out{opacity:.38}
+.wk{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--rule);font-size:14px}
+.wk:last-child{border-bottom:none}
+
+/* ---------- misc ---------- */
+.pill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:3px 8px;border-radius:20px}
+.pill.ok{background:color-mix(in srgb,var(--good) 18%,transparent);color:var(--good)}
+.pill.no{background:color-mix(in srgb,var(--alarm) 18%,transparent);color:var(--alarm)}
+.pill.cr{background:color-mix(in srgb,var(--amber) 20%,transparent);color:var(--amber)}
+.empty{text-align:center;color:var(--muted);font-size:14px;padding:26px 12px;line-height:1.5}
+.hint{font-size:12.5px;color:var(--muted);margin-top:8px;line-height:1.45}
+
+/* ---------- sheet ---------- */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.42);z-index:50;display:none}
+.scrim.on{display:block}
+.sheet{
+  position:fixed;left:0;right:0;bottom:0;z-index:51;background:var(--surface);
+  border-radius:18px 18px 0 0;padding:18px 16px calc(18px + var(--safe-b));
+  max-height:88vh;overflow-y:auto;transform:translateY(101%);transition:transform .22s ease-out;
+  max-width:560px;margin:0 auto;
+}
+.sheet.on{transform:translateY(0)}
+.sheet h3{margin:0 0 14px;font-size:17px;font-weight:700}
+.grab{width:36px;height:4px;border-radius:3px;background:var(--rule-2);margin:0 auto 14px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+.toast{
+  position:fixed;left:50%;transform:translateX(-50%);bottom:calc(92px + var(--safe-b));z-index:60;
+  background:var(--ink);color:var(--ground);border-radius:11px;padding:11px 14px;font-size:13.5px;
+  display:flex;align-items:center;gap:14px;opacity:0;pointer-events:none;transition:opacity .2s;
+  max-width:calc(100% - 32px);
+}
+.toast.on{opacity:.97;pointer-events:auto}
+.toast button{background:none;border:none;color:var(--blue);font:inherit;font-weight:700;cursor:pointer;padding:0;flex:none}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div class="view on" id="v-today"></div>
+  <div class="view" id="v-cal"></div>
+  <div class="view" id="v-loans"></div>
+  <div class="view" id="v-setup"></div>
+</div>
+
+<nav>
+  <button data-v="today" aria-current="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Today</button>
+  <button data-v="cal"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Calendar</button>
+  <button data-v="loans"><svg viewBox="0 0 24 24"><path d="M3 17V9M8.5 17V6M14 17v-7M19.5 17V4"/><path d="M3 21h18"/></svg>Loans</button>
+  <button data-v="setup"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="8" cy="17" r="2"/></svg>Setup</button>
+</nav>
+
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="sheet"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+/* =======================================================================
+   Daily — a spending planner. All data stays in this browser.
+   Nothing personal is stored in this file.
+   ======================================================================= */
+
+var KEY = "daily.v1";
+var $ = function(s,r){ return (r||document).querySelector(s); };
+var el = function(t,a){ var n=document.createElement(t); if(a) for(var k in a) n.setAttribute(k,a[k]); return n; };
+
+/* ---------------- defaults (generic, no personal data) ---------------- */
+function seedDB(){
+  var t = todayISO();
+  return {
+    v: 1,
+    settings: {
+      cur: "₱",
+      rule: "semimonthly",      // semimonthly | monthly | fortnightly | custom
+      farePerDay: 150,
+      theme: "auto"
+    },
+    cycle: defaultCycle(t),
+    accounts: [
+      { id:"cash",  name:"Cash",          type:"cash",   bal:0 },
+      { id:"bank1", name:"Daily bank",    type:"cash",   bal:0 },
+      { id:"bank2", name:"Fun bank",      type:"cash",   bal:0 },
+      { id:"bills", name:"Bills account", type:"cash",   bal:0 },
+      { id:"cred1", name:"Credit line",   type:"credit", bal:0, stmtDay:25, dueDay:15, pending:0 }
+    ],
+    envelopes: [
+      { id:"fare",   name:"Fare",   acct:"cash",  cats:["jeep","taxi"] },
+      { id:"food",   name:"Food",   acct:"bank1", cats:["breakfast","lunch","dinner","drink","snack"] },
+      { id:"fun",    name:"Fun",    acct:"bank2", cats:["eatout","night","other"] }
+    ],
+    cats: [
+      { id:"jeep",      name:"Jeep / bus", def:150, env:"fare" },
+      { id:"taxi",      name:"Motortaxi",  def:135, env:"fare" },
+      { id:"breakfast", name:"Breakfast",  def:80,  env:"food" },
+      { id:"lunch",     name:"Lunch",      def:200, env:"food" },
+      { id:"dinner",    name:"Dinner",     def:240, env:"food" },
+      { id:"drink",     name:"Drink",      def:40,  env:"food" },
+      { id:"snack",     name:"Snack",      def:100, env:"food" },
+      { id:"eatout",    name:"Eating out", def:425, env:"fun"  },
+      { id:"night",     name:"Night out",  def:400, env:"fun"  },
+      { id:"other",     name:"Other",      def:0,   env:"fun"  }
+    ],
+    goals: [],                 // {id,name,perCycle,bal,target}
+    fixed: [],                 // {id,name,amt,day}  recurring non-negotiables e.g. rent
+    loans: [],                 // {id,lender,loan,amt,due,paid}
+    txns:  [],                 // {id,date,amt,cat,acct,note}
+    office:[],                 // ISO dates you go to the office
+    hist:  {}                  // {"YYYY-MM-DD": total}  imported history, display only
+  };
+}
+
+/* ---------------- date helpers ---------------- */
+function pad(n){ return (n<10?"0":"")+n; }
+function iso(d){ return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
+function todayISO(){ return iso(new Date()); }
+function parse(s){ var p=String(s).split("-"); return new Date(+p[0],+p[1]-1,+p[2]); }
+function addD(s,n){ var d=parse(s); d.setDate(d.getDate()+n); return iso(d); }
+function daysBetween(a,b){ return Math.round((parse(b)-parse(a))/86400000); }
+var MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+var DOW=["S","M","T","W","T","F","S"];
+function fmtD(s){ var d=parse(s); return d.getDate()+" "+MON[d.getMonth()]; }
+function lastDay(y,m){ return new Date(y,m+1,0).getDate(); }
+
+function defaultCycle(t){
+  var d=parse(t), y=d.getFullYear(), m=d.getMonth(), day=d.getDate();
+  if(day<15) return { start:iso(new Date(y,m-1,lastDay(y,m-1))), end:iso(new Date(y,m,14)), income:0 };
+  if(day<lastDay(y,m)) return { start:iso(new Date(y,m,15)), end:iso(new Date(y,m,lastDay(y,m)-1)), income:0 };
+  return { start:iso(new Date(y,m,lastDay(y,m))), end:iso(new Date(y,m+1,14)), income:0 };
+}
+function nextCycle(c,rule){
+  var s = addD(c.end,1), d = parse(s), y=d.getFullYear(), m=d.getMonth();
+  if(rule==="fortnightly") return { start:s, end:addD(s,13), income:c.income };
+  if(rule==="monthly")     return { start:s, end:iso(new Date(y,m+1,d.getDate()-1)), income:c.income };
+  var e = d.getDate()>=15 ? iso(new Date(y,m+1,14)) : iso(new Date(y,m,lastDay(y,m)-1));
+  return { start:s, end:e, income:c.income };
+}
+
+/* ---------------- store ---------------- */
+var DB;
+function load(){
+  try{ var r=localStorage.getItem(KEY); if(r){ DB=JSON.parse(r); migrate(); return; } }catch(e){}
+  DB=seedDB(); save();
+}
+function migrate(){
+  var d=seedDB();
+  for(var k in d) if(!(k in DB)) DB[k]=d[k];
+  for(var k2 in d.settings) if(!(k2 in DB.settings)) DB.settings[k2]=d.settings[k2];
+}
+function save(){ try{ localStorage.setItem(KEY,JSON.stringify(DB)); }catch(e){ toast("Could not save. Storage may be full or blocked."); } }
+function uid(){ return Math.random().toString(36).slice(2,9); }
+
+/* ---------------- money ---------------- */
+function P(n){
+  var neg = n<0; n=Math.abs(Math.round(n));
+  return (neg?"-":"")+DB.settings.cur+n.toLocaleString("en-US");
+}
+function P2(n){ return DB.settings.cur+(Math.round(n*100)/100).toLocaleString("en-US",{minimumFractionDigits:0,maximumFractionDigits:0}); }
+
+/* ---------------- the engine ---------------- */
+function acct(id){ for(var i=0;i<DB.accounts.length;i++) if(DB.accounts[i].id===id) return DB.accounts[i]; return null; }
+function cat(id){ for(var i=0;i<DB.cats.length;i++) if(DB.cats[i].id===id) return DB.cats[i]; return null; }
+function env(id){ for(var i=0;i<DB.envelopes.length;i++) if(DB.envelopes[i].id===id) return DB.envelopes[i]; return null; }
+
+function onHand(){
+  var s=0;
+  for(var i=0;i<DB.accounts.length;i++) if(DB.accounts[i].type==="cash") s+=(+DB.accounts[i].bal||0);
+  return s;
+}
+function inCycle(dt){ return dt>=DB.cycle.start && dt<=DB.cycle.end; }
+
+/* loans + fixed bills + credit bills falling inside this cycle, still unpaid */
+function commitments(){
+  var out=[], i;
+  for(i=0;i<DB.loans.length;i++){
+    var L=DB.loans[i];
+    if(!L.paid && inCycle(L.due)) out.push({ id:L.id, kind:"loan", name:(L.lender?L.lender+" ":"")+L.loan, amt:+L.amt, date:L.due });
+  }
+  for(i=0;i<DB.fixed.length;i++){
+    var F=DB.fixed[i];
+    var d=dayInCycle(F.day);
+    if(d) out.push({ id:F.id, kind:"fixed", name:F.name, amt:+F.amt, date:d });
+  }
+  for(i=0;i<DB.accounts.length;i++){
+    var A=DB.accounts[i];
+    if(A.type==="credit" && (+A.bal||0)>0){
+      var dd=dayInCycle(A.dueDay);
+      if(dd) out.push({ id:A.id, kind:"credit", name:A.name+" bill", amt:+A.bal, date:dd });
+    }
+  }
+  out.sort(function(a,b){ return a.date<b.date?-1:1; });
+  return out;
+}
+function dayInCycle(day){
+  if(!day) return null;
+  var s=parse(DB.cycle.start), e=parse(DB.cycle.end), d=new Date(s);
+  while(d<=e){ if(d.getDate()===+day) return iso(d); d.setDate(d.getDate()+1); }
+  return null;
+}
+function committedTotal(){ var c=commitments(),s=0; for(var i=0;i<c.length;i++) s+=c[i].amt; return s; }
+
+function officeDaysLeft(){
+  var t=todayISO(), n=0;
+  for(var i=0;i<DB.office.length;i++){ var d=DB.office[i]; if(d>=t && inCycle(d)) n++; }
+  return n;
+}
+function fareReserve(){ return officeDaysLeft()*(+DB.settings.farePerDay||0); }
+
+function goalsUnfunded(){
+  var s=0;
+  for(var i=0;i<DB.goals.length;i++){ var g=DB.goals[i]; if(!g.fundedCycle || g.fundedCycle!==DB.cycle.start) s+=(+g.perCycle||0); }
+  return s;
+}
+
+function spentOn(dt){
+  var s=0;
+  for(var i=0;i<DB.txns.length;i++){
+    var T=DB.txns[i]; if(T.date!==dt) continue;
+    var A=acct(T.acct);
+    if(A && A.type==="credit") continue;      // credit does not touch cash
+    s+=+T.amt;
+  }
+  return s;
+}
+function spentRange(a,b){
+  var s=0;
+  for(var i=0;i<DB.txns.length;i++){
+    var T=DB.txns[i]; if(T.date<a||T.date>b) continue;
+    var A=acct(T.acct); if(A && A.type==="credit") continue;
+    s+=+T.amt;
+  }
+  return s;
+}
+function daysLeft(){
+  var t=todayISO();
+  if(t>DB.cycle.end) return 1;
+  if(t<DB.cycle.start) return daysBetween(DB.cycle.start,DB.cycle.end)+1;
+  return daysBetween(t,DB.cycle.end)+1;
+}
+function freeToSpend(){
+  return onHand() - committedTotal() - fareReserve() - goalsUnfunded();
+}
+function todayAllowance(){
+  var f=freeToSpend(), d=daysLeft();
+  var base = d>0 ? f/d : f;
+  return base - spentOn(todayISO());
+}
+function perDayBase(){ var d=daysLeft(); return d>0 ? freeToSpend()/d : freeToSpend(); }
+
+/* ---------------- views ---------------- */
+var VIEW="today";
+function render(){
+  ["today","cal","loans","setup"].forEach(function(v){
+    $("#v-"+v).classList.toggle("on", v===VIEW);
+  });
+  document.querySelectorAll("nav button").forEach(function(b){
+    b.setAttribute("aria-current", b.dataset.v===VIEW ? "true":"false");
+  });
+  if(VIEW==="today") renderToday();
+  if(VIEW==="cal")   renderCal();
+  if(VIEW==="loans") renderLoans();
+  if(VIEW==="setup") renderSetup();
+  window.scrollTo(0,0);
+}
+
+/* ---------- TODAY ---------- */
+function renderToday(){
+  var v=$("#v-today"), t=todayISO();
+  var allow=todayAllowance(), base=perDayBase(), spent=spentOn(t);
+  var pct = base>0 ? Math.max(0,Math.min(100, spent/base*100)) : (spent>0?100:0);
+  var h="";
+
+  h += '<div class="vhead"><h1>Today</h1><span class="sub num">'+fmtD(DB.cycle.start)+" – "+fmtD(DB.cycle.end)+'</span></div>';
+
+  h += '<div class="hero">'
+     + '<div class="lbl">You can spend</div>'
+     + '<div class="big num'+(allow<0?" over":"")+'">'+P(allow)+'</div>'
+     + '<div class="note">'+(allow<0
+         ? "Over by "+P(-allow)+" today. Tomorrow shrinks."
+         : daysLeft()+" day"+(daysLeft()===1?"":"s")+" left in this cycle")+'</div>'
+     + '<div class="bar"><i class="'+(spent>base?"hot":"")+'" style="width:'+pct+'%"></i></div>'
+     + '<div class="split"><span class="num">'+P(spent)+' spent</span><span class="num">'+P(base)+' a day</span></div>'
+     + '</div>';
+
+  // quick add
+  h += '<div class="card"><h2>Log it</h2><div class="chips" id="quick">';
+  for(var i=0;i<DB.cats.length;i++){
+    var c=DB.cats[i];
+    if(!c.def) continue;
+    h += '<button class="chip" data-cat="'+c.id+'"><b>'+esc(c.name)+'</b><span class="num">'+P(c.def)+'</span></button>';
+  }
+  h += '<button class="chip add" data-custom="1">+</button></div>';
+  h += '<div class="hint">Tap to log at the usual amount. The + button is for anything else.</div></div>';
+
+  // afford check
+  h += '<div class="card"><h2>Can I afford this?</h2>'
+     + '<div style="display:flex;gap:8px">'
+     + '<input id="affordAmt" type="number" inputmode="decimal" placeholder="Amount" style="flex:1">'
+     + '<button class="btn sm" id="affordGo" style="flex:0 0 auto;padding:11px 16px">Check</button></div>'
+     + '<div id="affordOut" class="hint"></div></div>';
+
+  // envelopes
+  h += '<div class="card"><h2>Envelopes</h2>';
+  if(!DB.envelopes.length) h += '<div class="empty">No envelopes yet. Add them in Setup.</div>';
+  for(i=0;i<DB.envelopes.length;i++){
+    var E=DB.envelopes[i], A=acct(E.acct);
+    var sp = envSpentCycle(E.id);
+    h += '<div class="row"><span class="dot" style="background:var(--blue)"></span><div class="g">'
+       + '<div class="t">'+esc(E.name)+'</div><div class="s">'+(A?esc(A.name):"no account")+' · '+P(sp)+' this cycle</div>'
+       + '</div><div class="v num">'+(A?P(+A.bal||0):"—")+'</div></div>';
+  }
+  h += '</div>';
+
+  // credit warning
+  var creds = DB.accounts.filter(function(a){ return a.type==="credit" && (+a.bal||0)>0; });
+  if(creds.length){
+    h += '<div class="card"><h2>On credit</h2>';
+    creds.forEach(function(A){
+      var dd=dayInCycle(A.dueDay);
+      h += '<div class="row"><div class="g"><div class="t">'+esc(A.name)+' <span class="pill cr">bill</span></div>'
+         + '<div class="s">'+(dd?"Due "+fmtD(dd)+", this cycle":"Due day "+(A.dueDay||"?")+", a later cycle")+'</div></div>'
+         + '<div class="v num">'+P(+A.bal)+'</div></div>';
+    });
+    h += '<div class="hint">Spending here does not touch today’s number. It lands on the bill instead.</div></div>';
+  }
+
+  // recent
+  var rec = DB.txns.slice().sort(function(a,b){ return a.date<b.date?1:(a.date>b.date?-1:(a.id<b.id?1:-1)); }).slice(0,8);
+  h += '<div class="card"><h2>Recent</h2>';
+  if(!rec.length) h += '<div class="empty">Nothing logged yet.</div>';
+  rec.forEach(function(T){
+    var C=cat(T.cat), A=acct(T.acct);
+    h += '<div class="row"><div class="g"><div class="t">'+esc(C?C.name:"Other")+(T.note?' <span class="s" style="display:inline">'+esc(T.note)+'</span>':'')+'</div>'
+       + '<div class="s">'+fmtD(T.date)+' · '+esc(A?A.name:"?")+(A&&A.type==="credit"?" (credit)":"")+'</div></div>'
+       + '<div class="v num">'+P(T.amt)+'</div>'
+       + '<button class="btn sec sm" data-del="'+T.id+'" style="padding:6px 9px">×</button></div>';
+  });
+  h += '</div>';
+
+  v.innerHTML=h;
+
+  $("#quick").addEventListener("click", function(e){
+    var b=e.target.closest("button"); if(!b) return;
+    if(b.dataset.custom) return openTxn(null);
+    var c=cat(b.dataset.cat); if(c) quickLog(c);
+  });
+  $("#affordGo").addEventListener("click", afford);
+  $("#affordAmt").addEventListener("keydown", function(e){ if(e.key==="Enter") afford(); });
+  v.querySelectorAll("[data-del]").forEach(function(b){
+    b.addEventListener("click", function(){ delTxn(b.dataset.del); });
+  });
+}
+function envSpentCycle(eid){
+  var E=env(eid); if(!E) return 0;
+  var s=0;
+  for(var i=0;i<DB.txns.length;i++){
+    var T=DB.txns[i]; if(!inCycle(T.date)) continue;
+    var C=cat(T.cat); if(!C || C.env!==eid) continue;
+    s+=+T.amt;
+  }
+  return s;
+}
+function afford(){
+  var a=+$("#affordAmt").value;
+  var out=$("#affordOut");
+  if(!a){ out.textContent=""; return; }
+  var before=todayAllowance();
+  var after = (freeToSpend()-a)/Math.max(1,daysLeft()-1);
+  var nowAfter = before-a;
+  if(nowAfter>=0){
+    out.innerHTML = '<span class="pill ok">Yes</span> Leaves '+P(nowAfter)+' today, and about '+P(after)+' a day after this.';
+  } else {
+    out.innerHTML = '<span class="pill no">Not today</span> You’d be '+P(-nowAfter)+' over, and the rest of the cycle drops to about '+P(after)+' a day.';
+  }
+}
+
+/* ---------- CALENDAR ---------- */
+var calOff=0;
+function renderCal(){
+  var v=$("#v-cal");
+  var base=parse(DB.cycle.start); base.setMonth(base.getMonth()+calOff);
+  var y=base.getFullYear(), m=base.getMonth();
+  var first=new Date(y,m,1), start=first.getDay(), n=lastDay(y,m), t=todayISO();
+  var per=perDayBase();
+  var h="";
+
+  h += '<div class="vhead"><h1>'+MON[m]+" "+y+'</h1><div style="display:flex;gap:6px">'
+     + '<button class="btn sec sm" data-mo="-1">‹</button><button class="btn sec sm" data-mo="1">›</button></div></div>';
+
+  h += '<div class="card"><div class="calhead">';
+  for(var i=0;i<7;i++) h+='<div>'+DOW[i]+'</div>';
+  h += '</div><div class="cal">';
+  for(i=0;i<start;i++) h+='<div class="day blank"></div>';
+  for(var d=1; d<=n; d++){
+    var ds = y+"-"+pad(m+1)+"-"+pad(d);
+    var sp = spentOn(ds);
+    var hist = DB.hist[ds];
+    var val = sp || (hist!=null?hist:null);
+    var cls="day";
+    if(!inCycle(ds)) cls+=" out";
+    if(ds===t) cls+=" today";
+    if(val!=null && ds<=t){ cls += (val<=per? " under":" over"); }
+    h += '<div class="'+cls+'"><span class="d">'+d+'</span>'
+       + '<span class="a num">'+(val!=null && ds<=t ? P(val).replace(DB.settings.cur,"") : (ds>t? P(per).replace(DB.settings.cur,"") : "–"))+'</span></div>';
+  }
+  h += '</div>';
+  h += '<div class="hint">Past days show what you actually spent, green under the line, red over. Future days show the allowance at today’s pace.</div></div>';
+
+  // weekly
+  h += '<div class="card"><h2>By week, this cycle</h2>';
+  var s=DB.cycle.start, wi=1;
+  while(s<=DB.cycle.end){
+    var e=addD(s,6); if(e>DB.cycle.end) e=DB.cycle.end;
+    var spent=spentRange(s,e);
+    var cap=per*(daysBetween(s,e)+1);
+    h += '<div class="wk"><div><div style="font-weight:600">Week '+wi+'</div><div class="s" style="font-size:12.5px;color:var(--muted)">'+fmtD(s)+" – "+fmtD(e)+'</div></div>'
+       + '<div style="text-align:right"><div class="num" style="font-weight:700;color:'+(spent>cap?"var(--alarm)":"var(--ink)")+'">'+P(spent)+'</div>'
+       + '<div class="num" style="font-size:12.5px;color:var(--muted)">of '+P(cap)+'</div></div></div>';
+    s=addD(e,1); wi++;
+  }
+  h += '</div>';
+
+  v.innerHTML=h;
+  v.querySelectorAll("[data-mo]").forEach(function(b){
+    b.addEventListener("click", function(){ calOff += +b.dataset.mo; renderCal(); });
+  });
+}
+
+/* ---------- LOANS ---------- */
+var loanFilter="due";
+function renderLoans(){
+  var v=$("#v-loans"), h="";
+  var paid=0, left=0, i;
+  for(i=0;i<DB.loans.length;i++){ var L=DB.loans[i]; if(L.paid) paid+=+L.amt; else left+=+L.amt; }
+  var total=paid+left, pct= total? paid/total*100 : 0;
+  var last=null;
+  for(i=0;i<DB.loans.length;i++) if(!DB.loans[i].paid && (!last||DB.loans[i].due>last)) last=DB.loans[i].due;
+
+  h += '<div class="vhead"><h1>Loans</h1><span class="sub">'+DB.loans.filter(function(l){return !l.paid;}).length+' left</span></div>';
+
+  h += '<div class="hero">'
+     + '<div class="lbl">Still to pay</div>'
+     + '<div class="big num">'+P(left)+'</div>'
+     + '<div class="note">'+(last? "Last payment "+fmtD(last)+" "+parse(last).getFullYear() : "Nothing scheduled")+'</div>'
+     + '<div class="bar"><i style="width:'+pct+'%"></i></div>'
+     + '<div class="split"><span class="num">'+P(paid)+' paid</span><span class="num">'+Math.round(pct)+'% done</span></div>'
+     + '</div>';
+
+  var due = commitments().filter(function(c){ return c.kind!=="fixed"; });
+  h += '<div class="card"><h2>Due this cycle</h2>';
+  if(!due.length) h += '<div class="empty">Nothing due between '+fmtD(DB.cycle.start)+' and '+fmtD(DB.cycle.end)+'.</div>';
+  due.forEach(function(c){
+    h += '<div class="row"><div class="g"><div class="t">'+esc(c.name)+(c.kind==="credit"?' <span class="pill cr">bill</span>':'')+'</div>'
+       + '<div class="s">'+fmtD(c.date)+'</div></div><div class="v num">'+P(c.amt)+'</div>'
+       + (c.kind==="loan"?'<button class="btn sec sm" data-pay="'+c.id+'">Paid</button>':'')+'</div>';
+  });
+  h += '</div>';
+
+  // credit lines
+  var creds = DB.accounts.filter(function(a){ return a.type==="credit"; });
+  if(creds.length){
+    h += '<div class="card"><h2>Credit lines</h2>';
+    creds.forEach(function(A){
+      h += '<div class="row"><div class="g"><div class="t">'+esc(A.name)+'</div>'
+         + '<div class="s">Statement day '+(A.stmtDay||"?")+' · due day '+(A.dueDay||"?")+'</div></div>'
+         + '<div class="v num">'+P(+A.bal||0)+'</div></div>';
+    });
+    h += '<div class="hint">Anything you charge here is added to the bill and lands in the cycle containing its due date.</div></div>';
+  }
+
+  // schedule
+  h += '<div class="card"><h2>Schedule</h2>'
+     + '<div class="btnrow" style="margin-top:0;margin-bottom:10px">'
+     + '<button class="btn sec sm" data-f="due"'+(loanFilter==="due"?' style="border-color:var(--blue);color:var(--blue)"':'')+'>Upcoming</button>'
+     + '<button class="btn sec sm" data-f="paid"'+(loanFilter==="paid"?' style="border-color:var(--blue);color:var(--blue)"':'')+'>Paid</button>'
+     + '<button class="btn sec sm" data-f="lender"'+(loanFilter==="lender"?' style="border-color:var(--blue);color:var(--blue)"':'')+'>By lender</button>'
+     + '</div>';
+
+  var rows = DB.loans.slice().sort(function(a,b){ return a.due<b.due?-1:1; });
+  if(!rows.length){
+    h += '<div class="empty">No schedule yet.<br>Import your seed file in Setup, or add rows there.</div>';
+  } else if(loanFilter==="lender"){
+    var by={};
+    rows.forEach(function(L){ if(L.paid) return; var k=(L.lender||"?")+" · "+L.loan; (by[k]=by[k]||{n:0,s:0,last:""}); by[k].n++; by[k].s+=+L.amt; if(L.due>by[k].last) by[k].last=L.due; });
+    var keys=Object.keys(by).sort(function(a,b){ return by[b].s-by[a].s; });
+    if(!keys.length) h+='<div class="empty">Everything is paid.</div>';
+    keys.forEach(function(k){
+      h += '<div class="row"><div class="g"><div class="t">'+esc(k)+'</div><div class="s">'+by[k].n+' left · ends '+fmtD(by[k].last)+'</div></div>'
+         + '<div class="v num">'+P(by[k].s)+'</div></div>';
+    });
+  } else {
+    var want = loanFilter==="paid";
+    var list = rows.filter(function(L){ return !!L.paid===want; });
+    if(!list.length) h+='<div class="empty">Nothing here.</div>';
+    list.slice(0, 60).forEach(function(L){
+      h += '<div class="row"><div class="g"><div class="t">'+esc((L.lender?L.lender+" ":"")+L.loan)+'</div>'
+         + '<div class="s">'+fmtD(L.due)+' '+parse(L.due).getFullYear()+'</div></div>'
+         + '<div class="v num">'+P(L.amt)+'</div>'
+         + '<button class="btn sec sm" data-toggle="'+L.id+'">'+(L.paid?"✓":"Paid")+'</button></div>';
+    });
+    if(list.length>60) h+='<div class="hint">Showing the first 60 of '+list.length+'.</div>';
+  }
+  h += '</div>';
+
+  v.innerHTML=h;
+  v.querySelectorAll("[data-f]").forEach(function(b){ b.addEventListener("click",function(){ loanFilter=b.dataset.f; renderLoans(); }); });
+  v.querySelectorAll("[data-pay],[data-toggle]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var id=b.dataset.pay||b.dataset.toggle;
+      for(var i=0;i<DB.loans.length;i++) if(DB.loans[i].id===id){ DB.loans[i].paid=!DB.loans[i].paid; break; }
+      save(); renderLoans(); toast("Updated");
+    });
+  });
+}
+
+/* ---------- SETUP ---------- */
+function renderSetup(){
+  var v=$("#v-setup"), h="", i;
+  h += '<div class="vhead"><h1>Setup</h1></div>';
+
+  // cycle
+  h += '<div class="card"><h2>This cycle</h2>'
+     + '<div class="two"><label class="f"><span class="k">Starts</span><input type="date" id="cs" value="'+DB.cycle.start+'"></label>'
+     + '<label class="f"><span class="k">Ends</span><input type="date" id="ce" value="'+DB.cycle.end+'"></label></div>'
+     + '<label class="f"><span class="k">Pay for this cycle</span><input type="number" inputmode="decimal" id="cin" value="'+(DB.cycle.income||"")+'"></label>'
+     + '<label class="f"><span class="k">Repeat</span><select id="crule">'
+     + opt("semimonthly","15th and end of month",DB.settings.rule)
+     + opt("monthly","Monthly",DB.settings.rule)
+     + opt("fortnightly","Every two weeks",DB.settings.rule)
+     + opt("custom","Custom, I set it myself",DB.settings.rule)
+     + '</select></label>'
+     + '<div class="btnrow"><button class="btn sec" id="saveCycle">Save</button><button class="btn sec" id="newCycle">Start next cycle</button></div>'
+     + '<div class="hint">Dates are yours to change any time. A new employer with different cutoffs is a thirty-second edit.</div></div>';
+
+  // the maths
+  h += '<div class="card"><h2>Where the money goes</h2>'
+     + mrow("Money on hand", onHand())
+     + mrow("Loans and bills this cycle", -committedTotal())
+     + mrow("Fare set aside ("+officeDaysLeft()+" office days)", -fareReserve())
+     + mrow("Savings not yet funded", -goalsUnfunded())
+     + '<div class="row" style="border-top:2px solid var(--ink);border-bottom:none;margin-top:6px;padding-top:11px">'
+     + '<div class="g"><div class="t" style="font-weight:700">Free to spend</div><div class="s">over '+daysLeft()+' days</div></div>'
+     + '<div class="v num" style="font-size:18px">'+P(freeToSpend())+'</div></div></div>';
+
+  // accounts
+  h += '<div class="card"><h2>Accounts</h2>';
+  for(i=0;i<DB.accounts.length;i++){
+    var A=DB.accounts[i];
+    h += '<div class="row"><div class="g"><div class="t">'+esc(A.name)+' '+(A.type==="credit"?'<span class="pill cr">credit</span>':'')+'</div>'
+       + '<div class="s">'+(A.type==="credit"?("statement "+(A.stmtDay||"?")+", due "+(A.dueDay||"?")):"cash or debit")+'</div></div>'
+       + '<div class="v num">'+P(+A.bal||0)+'</div>'
+       + '<button class="btn sec sm" data-acct="'+A.id+'">Edit</button></div>';
+  }
+  h += '<div class="btnrow"><button class="btn sec" data-acct="new">Add account</button></div>'
+     + '<div class="hint">Credit accounts never reduce today’s number. What you charge lands on their bill.</div></div>';
+
+  // envelopes
+  h += '<div class="card"><h2>Envelopes</h2>';
+  for(i=0;i<DB.envelopes.length;i++){
+    var E=DB.envelopes[i], A2=acct(E.acct);
+    h += '<div class="row"><div class="g"><div class="t">'+esc(E.name)+'</div><div class="s">'+(A2?esc(A2.name):"no account")+'</div></div>'
+       + '<button class="btn sec sm" data-env="'+E.id+'">Edit</button></div>';
+  }
+  h += '<div class="btnrow"><button class="btn sec" data-env="new">Add envelope</button></div></div>';
+
+  // categories
+  h += '<div class="card"><h2>Quick-log amounts</h2>';
+  for(i=0;i<DB.cats.length;i++){
+    var C=DB.cats[i];
+    h += '<div class="row"><div class="g"><div class="t">'+esc(C.name)+'</div><div class="s">'+esc((env(C.env)||{}).name||"no envelope")+'</div></div>'
+       + '<div class="v num">'+(C.def?P(C.def):"—")+'</div>'
+       + '<button class="btn sec sm" data-cat="'+C.id+'">Edit</button></div>';
+  }
+  h += '<div class="btnrow"><button class="btn sec" data-cat="new">Add category</button></div></div>';
+
+  // goals
+  h += '<div class="card"><h2>Savings</h2>';
+  if(!DB.goals.length) h += '<div class="empty">No savings goals yet.</div>';
+  for(i=0;i<DB.goals.length;i++){
+    var G=DB.goals[i];
+    var gp = G.target? Math.min(100,(+G.bal||0)/G.target*100) : 0;
+    var funded = G.fundedCycle===DB.cycle.start;
+    h += '<div style="padding:11px 0;border-bottom:1px solid var(--rule)">'
+       + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">'
+       + '<div style="font-weight:600">'+esc(G.name)+'</div>'
+       + '<div class="num" style="font-weight:700">'+P(+G.bal||0)+(G.target?' <span style="color:var(--muted);font-weight:400">of '+P(G.target)+'</span>':'')+'</div></div>'
+       + '<div class="bar" style="height:6px;border-radius:3px;background:var(--surface-3);overflow:hidden;margin:8px 0 6px"><i style="display:block;height:100%;width:'+gp+'%;background:var(--good)"></i></div>'
+       + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'
+       + '<span class="s" style="font-size:12.5px;color:var(--muted)">'+P(+G.perCycle||0)+' per cycle'+(funded?" · funded":"")+'</span>'
+       + '<span style="display:flex;gap:6px">'
+       + (funded?'':'<button class="btn sec sm" data-fund="'+G.id+'">Fund now</button>')
+       + '<button class="btn sec sm" data-goal="'+G.id+'">Edit</button></span></div></div>';
+  }
+  h += '<div class="btnrow"><button class="btn sec" data-goal="new">Add goal</button></div></div>';
+
+  // fixed
+  h += '<div class="card"><h2>Fixed bills</h2>';
+  if(!DB.fixed.length) h += '<div class="empty">None. Rent, a car payment, a subscription.</div>';
+  for(i=0;i<DB.fixed.length;i++){
+    var F=DB.fixed[i];
+    h += '<div class="row"><div class="g"><div class="t">'+esc(F.name)+'</div><div class="s">day '+F.day+' of the month</div></div>'
+       + '<div class="v num">'+P(F.amt)+'</div><button class="btn sec sm" data-fix="'+F.id+'">Edit</button></div>';
+  }
+  h += '<div class="btnrow"><button class="btn sec" data-fix="new">Add bill</button></div></div>';
+
+  // office days
+  h += '<div class="card"><h2>Office days</h2>'
+     + '<label class="f"><span class="k">Fare per office day</span><input type="number" inputmode="decimal" id="fare" value="'+(DB.settings.farePerDay||0)+'"></label>'
+     + '<div class="hint" style="margin-bottom:10px">Tap the days you go in. Fare for those days is reserved before anything else.</div>'
+     + '<div class="cal" id="officeCal">'+officeGrid()+'</div></div>';
+
+  // data
+  h += '<div class="card"><h2>Your data</h2>'
+     + '<div class="hint" style="margin-top:0;margin-bottom:12px">Everything lives in this browser only. Nothing is sent anywhere. Export regularly, and keep the backup somewhere you control.</div>'
+     + '<div class="btnrow"><button class="btn sec" id="expBtn">Export backup</button><button class="btn sec" id="impBtn">Import</button></div>'
+     + '<input type="file" id="impFile" accept="application/json,.json" style="display:none">'
+     + '<div class="btnrow"><button class="btn sec" id="themeBtn">Theme: '+(DB.settings.theme||"auto")+'</button><button class="btn dan" id="wipeBtn">Erase everything</button></div>'
+     + '<div class="hint"><b>Important:</b> never put card numbers, PINs or passwords in here. Amounts and balances only.</div></div>';
+
+  v.innerHTML=h;
+  wireSetup(v);
+}
+function mrow(k,val){
+  return '<div class="row"><div class="g"><div class="t">'+k+'</div></div><div class="v num'+(val<0?" neg":"")+'">'+P(val)+'</div></div>';
+}
+function opt(v,l,cur){ return '<option value="'+v+'"'+(cur===v?' selected':'')+'>'+l+'</option>'; }
+function officeGrid(){
+  var s=parse(DB.cycle.start), e=parse(DB.cycle.end), h="", d=new Date(s);
+  var pre=d.getDay();
+  for(var i=0;i<pre;i++) h+='<div class="day blank"></div>';
+  while(d<=e){
+    var ds=iso(d), on=DB.office.indexOf(ds)>-1;
+    h += '<button class="day'+(on?" under":"")+'" data-off="'+ds+'" style="border:1px solid '+(on?"var(--good)":"var(--rule)")+';font:inherit;cursor:pointer">'
+       + '<span class="d">'+DOW[d.getDay()]+'</span><span class="a num">'+d.getDate()+'</span></button>';
+    d.setDate(d.getDate()+1);
+  }
+  return h;
+}
+function wireSetup(v){
+  $("#saveCycle").addEventListener("click", function(){
+    DB.cycle.start=$("#cs").value; DB.cycle.end=$("#ce").value;
+    DB.cycle.income=+$("#cin").value||0; DB.settings.rule=$("#crule").value;
+    DB.settings.farePerDay=+$("#fare").value||0;
+    save(); render(); toast("Saved");
+  });
+  $("#newCycle").addEventListener("click", function(){
+    if(!confirm("Start the next cycle? Savings goals reset to unfunded.")) return;
+    DB.cycle = nextCycle(DB.cycle, DB.settings.rule);
+    DB.goals.forEach(function(g){ g.fundedCycle=null; });
+    save(); render(); toast("New cycle started");
+  });
+  $("#fare").addEventListener("change", function(){ DB.settings.farePerDay=+this.value||0; save(); });
+  $("#officeCal").addEventListener("click", function(e){
+    var b=e.target.closest("[data-off]"); if(!b) return;
+    var ds=b.dataset.off, i=DB.office.indexOf(ds);
+    if(i>-1) DB.office.splice(i,1); else DB.office.push(ds);
+    save(); renderSetup();
+  });
+  v.querySelectorAll("[data-acct]").forEach(function(b){ b.addEventListener("click",function(){ openAcct(b.dataset.acct); }); });
+  v.querySelectorAll("[data-env]").forEach(function(b){ b.addEventListener("click",function(){ openEnv(b.dataset.env); }); });
+  v.querySelectorAll("[data-cat]").forEach(function(b){ b.addEventListener("click",function(){ openCat(b.dataset.cat); }); });
+  v.querySelectorAll("[data-goal]").forEach(function(b){ b.addEventListener("click",function(){ openGoal(b.dataset.goal); }); });
+  v.querySelectorAll("[data-fix]").forEach(function(b){ b.addEventListener("click",function(){ openFix(b.dataset.fix); }); });
+  v.querySelectorAll("[data-fund]").forEach(function(b){ b.addEventListener("click",function(){ fundGoal(b.dataset.fund); }); });
+  $("#expBtn").addEventListener("click", doExport);
+  $("#impBtn").addEventListener("click", function(){ $("#impFile").click(); });
+  $("#impFile").addEventListener("change", doImport);
+  $("#themeBtn").addEventListener("click", cycleTheme);
+  $("#wipeBtn").addEventListener("click", function(){
+    if(!confirm("Erase everything on this device? Export a backup first.")) return;
+    if(!confirm("Really erase? This cannot be undone.")) return;
+    try{ localStorage.removeItem(KEY); }catch(e){}
+    DB=seedDB(); save(); render(); toast("Erased");
+  });
+}
+
+/* ---------------- sheets ---------------- */
+function openSheet(title, body, onSave){
+  var s=$("#sheet");
+  s.innerHTML = '<div class="grab"></div><h3>'+esc(title)+'</h3>'+body
+    + '<div class="btnrow"><button class="btn" id="shSave">Save</button><button class="btn sec" id="shX">Cancel</button></div>';
+  $("#scrim").classList.add("on"); s.classList.add("on");
+  $("#shX").addEventListener("click", closeSheet);
+  $("#shSave").addEventListener("click", function(){ if(onSave()!==false){ closeSheet(); save(); render(); } });
+}
+function closeSheet(){ $("#sheet").classList.remove("on"); $("#scrim").classList.remove("on"); }
+$("#scrim").addEventListener("click", closeSheet);
+
+function fld(k,id,type,val,extra){
+  return '<label class="f"><span class="k">'+k+'</span><input id="'+id+'" type="'+type+'" '
+       + (type==="number"?'inputmode="decimal" ':'') + (extra||"") + ' value="'+(val==null?"":String(val).replace(/"/g,"&quot;"))+'"></label>';
+}
+function sel(k,id,opts,cur){
+  var h='<label class="f"><span class="k">'+k+'</span><select id="'+id+'">';
+  opts.forEach(function(o){ h+=opt(o[0],o[1],cur); });
+  return h+'</select></label>';
+}
+
+function openTxn(pre){
+  var cats=DB.cats.map(function(c){ return [c.id,c.name]; });
+  var accts=DB.accounts.map(function(a){ return [a.id,a.name+(a.type==="credit"?" (credit)":"")]; });
+  var body = fld("Amount","txAmt","number",pre?pre.amt:"")
+           + sel("What","txCat",cats,pre?pre.cat:DB.cats[0].id)
+           + sel("Paid from","txAcct",accts,pre?pre.acct:DB.accounts[0].id)
+           + fld("Date","txDate","date",pre?pre.date:todayISO())
+           + fld("Note (optional)","txNote","text",pre?pre.note:"");
+  openSheet("Log spending", body, function(){
+    var a=+$("#txAmt").value; if(!a){ toast("Enter an amount"); return false; }
+    addTxn({ amt:a, cat:$("#txCat").value, acct:$("#txAcct").value, date:$("#txDate").value, note:$("#txNote").value });
+    return true;
+  });
+}
+function openAcct(id){
+  var A = id==="new" ? { id:uid(), name:"", type:"cash", bal:0, stmtDay:25, dueDay:15 } : acct(id);
+  var body = fld("Name","aName","text",A.name)
+           + sel("Type","aType",[["cash","Cash or debit"],["credit","Credit line"]],A.type)
+           + fld("Balance (or amount owed)","aBal","number",A.bal)
+           + '<div class="two">'+fld("Statement day","aStmt","number",A.stmtDay||"")+fld("Due day","aDue","number",A.dueDay||"")+'</div>'
+           + '<div class="hint">Statement and due day only matter for credit lines.</div>'
+           + (id==="new"?"":'<div class="btnrow"><button class="btn dan" id="aDel">Delete this account</button></div>');
+  openSheet(id==="new"?"New account":"Edit account", body, function(){
+    A.name=$("#aName").value||"Account"; A.type=$("#aType").value; A.bal=+$("#aBal").value||0;
+    A.stmtDay=+$("#aStmt").value||null; A.dueDay=+$("#aDue").value||null;
+    if(id==="new") DB.accounts.push(A);
+    return true;
+  });
+  if(id!=="new") $("#aDel").addEventListener("click", function(){
+    if(!confirm("Delete "+A.name+"?")) return;
+    DB.accounts=DB.accounts.filter(function(x){ return x.id!==A.id; });
+    closeSheet(); save(); render();
+  });
+}
+function openEnv(id){
+  var E = id==="new" ? { id:uid(), name:"", acct:DB.accounts[0].id, cats:[] } : env(id);
+  var accts=DB.accounts.filter(function(a){return a.type==="cash";}).map(function(a){ return [a.id,a.name]; });
+  var body = fld("Name","eName","text",E.name) + sel("Backed by","eAcct",accts,E.acct)
+           + (id==="new"?"":'<div class="btnrow"><button class="btn dan" id="eDel">Delete</button></div>');
+  openSheet(id==="new"?"New envelope":"Edit envelope", body, function(){
+    E.name=$("#eName").value||"Envelope"; E.acct=$("#eAcct").value;
+    if(id==="new") DB.envelopes.push(E);
+    return true;
+  });
+  if(id!=="new") $("#eDel").addEventListener("click", function(){
+    DB.envelopes=DB.envelopes.filter(function(x){ return x.id!==E.id; });
+    closeSheet(); save(); render();
+  });
+}
+function openCat(id){
+  var C = id==="new" ? { id:uid(), name:"", def:0, env:(DB.envelopes[0]||{}).id } : cat(id);
+  var envs=DB.envelopes.map(function(e){ return [e.id,e.name]; });
+  var body = fld("Name","cName","text",C.name) + fld("Usual amount","cDef","number",C.def)
+           + sel("Envelope","cEnv",envs,C.env)
+           + '<div class="hint">Set the usual amount to 0 to keep it out of the quick-log row.</div>'
+           + (id==="new"?"":'<div class="btnrow"><button class="btn dan" id="cDel">Delete</button></div>');
+  openSheet(id==="new"?"New category":"Edit category", body, function(){
+    C.name=$("#cName").value||"Category"; C.def=+$("#cDef").value||0; C.env=$("#cEnv").value;
+    if(id==="new") DB.cats.push(C);
+    return true;
+  });
+  if(id!=="new") $("#cDel").addEventListener("click", function(){
+    DB.cats=DB.cats.filter(function(x){ return x.id!==C.id; });
+    closeSheet(); save(); render();
+  });
+}
+function openGoal(id){
+  var G = id==="new" ? { id:uid(), name:"", perCycle:0, bal:0, target:0, fundedCycle:null } : DB.goals.filter(function(g){return g.id===id;})[0];
+  var body = fld("Name","gName","text",G.name)
+           + '<div class="two">'+fld("Per cycle","gPer","number",G.perCycle)+fld("Goal total","gTar","number",G.target)+'</div>'
+           + fld("Saved so far","gBal","number",G.bal)
+           + '<div class="hint">Per cycle is what comes out of each payday. The goal total is just the finish line.</div>'
+           + (id==="new"?"":'<div class="btnrow"><button class="btn dan" id="gDel">Delete</button></div>');
+  openSheet(id==="new"?"New savings goal":"Edit goal", body, function(){
+    G.name=$("#gName").value||"Goal"; G.perCycle=+$("#gPer").value||0;
+    G.target=+$("#gTar").value||0; G.bal=+$("#gBal").value||0;
+    if(id==="new") DB.goals.push(G);
+    return true;
+  });
+  if(id!=="new") $("#gDel").addEventListener("click", function(){
+    DB.goals=DB.goals.filter(function(x){ return x.id!==G.id; });
+    closeSheet(); save(); render();
+  });
+}
+function fundGoal(id){
+  for(var i=0;i<DB.goals.length;i++) if(DB.goals[i].id===id){
+    var G=DB.goals[i];
+    G.bal=(+G.bal||0)+(+G.perCycle||0);
+    G.fundedCycle=DB.cycle.start;
+    save(); render(); toast("Moved "+P(G.perCycle)+" to "+G.name);
+    return;
+  }
+}
+function openFix(id){
+  var F = id==="new" ? { id:uid(), name:"", amt:0, day:15 } : DB.fixed.filter(function(f){return f.id===id;})[0];
+  var body = fld("Name","fName","text",F.name)
+           + '<div class="two">'+fld("Amount","fAmt","number",F.amt)+fld("Day of month","fDay","number",F.day)+'</div>'
+           + (id==="new"?"":'<div class="btnrow"><button class="btn dan" id="fDel">Delete</button></div>');
+  openSheet(id==="new"?"New fixed bill":"Edit bill", body, function(){
+    F.name=$("#fName").value||"Bill"; F.amt=+$("#fAmt").value||0; F.day=+$("#fDay").value||1;
+    if(id==="new") DB.fixed.push(F);
+    return true;
+  });
+  if(id!=="new") $("#fDel").addEventListener("click", function(){
+    DB.fixed=DB.fixed.filter(function(x){ return x.id!==F.id; });
+    closeSheet(); save(); render();
+  });
+}
+
+/* ---------------- transactions ---------------- */
+function addTxn(t){
+  t.id=uid();
+  DB.txns.push(t);
+  var A=acct(t.acct);
+  if(A){
+    if(A.type==="credit"){ A.bal=(+A.bal||0)+(+t.amt); }
+    else { A.bal=(+A.bal||0)-(+t.amt); }
+  }
+  save(); render();
+  if(A && A.type==="credit"){
+    toast(P(t.amt)+" on "+A.name+". Bill now "+P(A.bal)+".", null);
+  } else {
+    toast(P(t.amt)+" logged. "+P(todayAllowance())+" left today.", function(){ delTxn(t.id); });
+  }
+}
+function quickLog(c){
+  var E=env(c.env);
+  var a = E ? E.acct : DB.accounts[0].id;
+  addTxn({ amt:c.def, cat:c.id, acct:a, date:todayISO(), note:"" });
+}
+function delTxn(id){
+  for(var i=0;i<DB.txns.length;i++) if(DB.txns[i].id===id){
+    var T=DB.txns[i], A=acct(T.acct);
+    if(A){ if(A.type==="credit") A.bal=(+A.bal||0)-(+T.amt); else A.bal=(+A.bal||0)+(+T.amt); }
+    DB.txns.splice(i,1); save(); render(); toast("Removed");
+    return;
+  }
+}
+
+/* ---------------- import / export ---------------- */
+function doExport(){
+  var blob=new Blob([JSON.stringify(DB,null,2)],{type:"application/json"});
+  var url=URL.createObjectURL(blob), a=el("a");
+  a.href=url; a.download="daily-backup-"+todayISO()+".json";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function(){ URL.revokeObjectURL(url); },1500);
+  toast("Backup downloaded");
+}
+function doImport(e){
+  var f=e.target.files&&e.target.files[0]; if(!f) return;
+  var r=new FileReader();
+  r.onload=function(){
+    try{
+      var d=JSON.parse(r.result);
+      if(!d || typeof d!=="object") throw 0;
+      if(!confirm("Import this file? It replaces what is on this device. Export a backup first if you need one.")) return;
+      DB=d; migrate(); save(); render(); toast("Imported");
+    }catch(err){ toast("That file could not be read"); }
+  };
+  r.readAsText(f);
+  e.target.value="";
+}
+function cycleTheme(){
+  var t=DB.settings.theme||"auto";
+  t = t==="auto" ? "light" : (t==="light" ? "dark" : "auto");
+  DB.settings.theme=t; applyTheme(); save(); renderSetup();
+}
+function applyTheme(){
+  var t=DB.settings.theme||"auto";
+  if(t==="auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme",t);
+}
+
+/* ---------------- misc ---------------- */
+function esc(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+var toastT=null;
+function toast(msg, undo){
+  var t=$("#toast");
+  t.innerHTML='<span>'+esc(msg)+'</span>';
+  if(undo){ var b=el("button"); b.textContent="Undo"; b.onclick=function(){ undo(); t.classList.remove("on"); }; t.appendChild(b); }
+  t.classList.add("on");
+  clearTimeout(toastT);
+  toastT=setTimeout(function(){ t.classList.remove("on"); }, undo?5000:2600);
+}
+
+document.querySelector("nav").addEventListener("click", function(e){
+  var b=e.target.closest("button"); if(!b) return;
+  VIEW=b.dataset.v; render();
+});
+
+load(); applyTheme(); render();
+</script>
+</body>
+</html>

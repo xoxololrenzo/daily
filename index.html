@@ -189,7 +189,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 <script>
 "use strict";
 /* ===== Daily v1.1 — everything stays in this browser. No personal data in this file. ===== */
-var VER="1.4", KEY="daily.v1";
+var VER="1.6", KEY="daily.v1";
 var $=function(s,r){ return (r||document).querySelector(s); };
 var el=function(t){ return document.createElement(t); };
 var ACCENTS=["#1D6FA3","#1F6B4F","#8A3E9E","#C2740A","#A8341E","#2B6DB0","#0E7C86","#B03A6B"];
@@ -301,7 +301,19 @@ function commitments(){
 function committedTotal(){ var s=0; commitments().forEach(function(c){ s+=c.amt; }); return s; }
 function officeDaysLeft(){ var t=todayISO(),n=0; DB.office.forEach(function(d){ if(d>=t&&inCycle(d)) n++; }); return n; }
 function fareReserve(){ return officeDaysLeft()*(+DB.settings.farePerDay||0); }
-function goalsUnfunded(){ var s=0; DB.goals.forEach(function(g){ if(g.fundedCycle!==DB.cycle.start) s+=(+g.perCycle||0); }); return s; }
+function cycleIsEOM(){
+  var d=parse(DB.cycle.start), n=lastDay(d.getFullYear(),d.getMonth());
+  return d.getDate()>=28 || d.getDate()===n;
+}
+function goalWhen(G){ return G.when||"every"; }
+function goalDue(G){
+  var w=goalWhen(G);
+  if(w==="eom") return cycleIsEOM();
+  if(w==="mid") return !cycleIsEOM();
+  return true;
+}
+function whenLabel(w){ return w==="eom"?"end of month only":(w==="mid"?"15th only":"every payday"); }
+function goalsUnfunded(){ var s=0; DB.goals.forEach(function(g){ if(goalDue(g) && g.fundedCycle!==DB.cycle.start) s+=(+g.perCycle||0); }); return s; }
 function isCredit(id){ var A=acct(id); return !!(A&&A.type==="credit"); }
 function spentOn(d){ var s=0; DB.txns.forEach(function(T){ if(T.date===d && !isCredit(T.acct)) s+=+T.amt; }); return s; }
 function spentRange(a,b){ var s=0; DB.txns.forEach(function(T){ if(T.date>=a&&T.date<=b&&!isCredit(T.acct)) s+=+T.amt; }); return s; }
@@ -320,12 +332,15 @@ function todayAllowance(){ return perDayBase() + fareFor(todayISO()) - spentOn(t
 
 /* ================= views ================= */
 var VIEW="today";
+var lastView=null;
 function render(){
+  var keepY = (VIEW===lastView) ? (window.scrollY||window.pageYOffset||0) : 0;
   ["today","money","cal","loans","setup"].forEach(function(v){ $("#v-"+v).classList.toggle("on",v===VIEW); });
   document.querySelectorAll("nav button").forEach(function(b){ b.setAttribute("aria-current", b.dataset.v===VIEW?"true":"false"); });
   $("#fab").classList.toggle("on", VIEW==="today"||VIEW==="money");
   ({today:renderToday,money:renderMoney,cal:renderCal,loans:renderLoans,setup:renderSetup})[VIEW]();
-  window.scrollTo(0,0);
+  lastView=VIEW;
+  window.scrollTo(0,keepY);
 }
 
 /* ---------- TODAY ---------- */
@@ -337,6 +352,12 @@ function renderToday(){
   var pct = cap>0 ? Math.max(0,Math.min(100,spent/cap*100)) : (spent>0?100:0);
   var h="";
 
+  if(todayISO()>DB.cycle.end){
+    h+='<div class="card" style="border-color:var(--amber)"><h2 style="color:var(--amber)">Cycle finished</h2>'
+      +'<div class="t" style="font-size:15px;margin-bottom:4px">This cycle ended '+fmtD(DB.cycle.end)+'.</div>'
+      +'<div class="s" style="color:var(--muted);font-size:13px">Start the next one so the daily number means something again. Your balances, loans and history all carry over.</div>'
+      +'<div class="btnrow"><button class="btn" id="rollNow">Start the next cycle</button></div></div>';
+  }
   h+='<div class="vhead"><h1>Today</h1><span class="sub">'+fmtD(DB.cycle.start)+" – "+fmtD(DB.cycle.end)
     +'<br>'+(DB.cycle.income?("Pay this cycle "+P(DB.cycle.income)):"")+'</span></div>';
 
@@ -392,11 +413,12 @@ function renderToday(){
   h+='</div>';
 
   v.innerHTML=h;
+  var rn=$("#rollNow"); if(rn) rn.addEventListener("click",rollCycle);
   $("#quick").addEventListener("click",function(e){ var b=e.target.closest("button"); if(b) quickLog(cat(b.dataset.cat)); });
   $("#affordGo").addEventListener("click",afford);
   $("#affordAmt").addEventListener("keydown",function(e){ if(e.key==="Enter") afford(); });
   $("#recSeg").addEventListener("click",function(e){ var b=e.target.closest("button"); if(b){ recFilter=b.dataset.k; renderToday(); } });
-  v.querySelectorAll("[data-del]").forEach(function(b){ b.addEventListener("click",function(){ delTxn(b.dataset.del); }); });
+  v.querySelectorAll("[data-edit]").forEach(function(b){ b.addEventListener("click",function(){ openTxn(b.dataset.edit); }); });
 }
 function sg(k,label,cur){ return '<button data-k="'+k+'" aria-pressed="'+(cur===k)+'">'+label+'</button>'; }
 function filterTxns(f){
@@ -610,7 +632,7 @@ function renderSetup(){
     +erow("Money on hand",onHand(),"money","across your accounts")
     +erow("Loans and bills this cycle",-committedTotal(),"loans",commitments().length+" items")
     +erow("Fare set aside",-fareReserve(),"fare",officeDaysLeft()+" office days left at "+P(DB.settings.farePerDay)+", nothing on other days")
-    +erow("Savings not yet funded",-goalsUnfunded(),"goals",DB.goals.length+" goals")
+    +erow("Savings not yet funded",-goalsUnfunded(),"goals",(cycleIsEOM()?"end-of-month cutoff":"15th cutoff")+" \u00b7 "+DB.goals.filter(goalDue).length+" of "+DB.goals.length+" apply")
     +erow("Manual adjustment",(+DB.cycle.adjust||0),"adjust","anything else, plus or minus")
     +'<div class="row" style="border-top:2px solid var(--ink);border-bottom:none;padding-top:11px"><div class="g"><div class="t" style="font-weight:700">Free to spend</div><div class="s">over '+daysLeft()+' days = '+P(perDayBase())+' a day</div></div><div class="v num" style="font-size:18px">'+P(freeToSpend())+'</div></div>'
     +'<div class="hint">Tap any line to change what feeds it.</div></div>';
@@ -649,14 +671,15 @@ function renderSetup(){
   h+='<div class="card"><h2>Savings</h2>';
   if(!DB.goals.length) h+='<div class="empty">No goals yet.</div>';
   DB.goals.forEach(function(G){
-    var gp=G.target?Math.min(100,(+G.bal||0)/G.target*100):0, funded=G.fundedCycle===DB.cycle.start;
+    var gp=G.target?Math.min(100,(+G.bal||0)/G.target*100):0, funded=G.fundedCycle===DB.cycle.start, due=goalDue(G);
     h+='<div style="padding:11px 0;border-bottom:1px solid var(--rule)">'
       +'<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><div style="font-weight:600">'+esc(G.name)+'</div>'
       +'<div class="num" style="font-weight:700">'+P(+G.bal||0)+(G.target?' <span style="color:var(--muted);font-weight:400">of '+P(G.target)+'</span>':'')+'</div></div>'
       +'<div class="bar" style="height:6px;margin:8px 0 6px"><i class="gd" style="width:'+gp+'%"></i></div>'
       +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'
       +'<span style="font-size:12.5px;color:var(--muted)">'+P(+G.perCycle||0)+' per cycle'+(funded?" · funded":"")+'</span>'
-      +'<span style="display:flex;gap:6px">'+(funded?'':'<button class="btn sec sm" data-fund="'+G.id+'">Fund now</button>')
+      +'<span style="display:flex;gap:6px">'+((funded||!due)?'':'<button class="btn sec sm" data-fund="'+G.id+'">Fund</button>')
+      +((+G.bal||0)>0?'<button class="btn sec sm" data-take="'+G.id+'">Take out</button>':'')
       +'<button class="btn sec sm" data-goal="'+G.id+'">Edit</button></span></div></div>';
   });
   h+='<div class="btnrow"><button class="btn sec" data-goal="new">Add goal</button></div></div>';
@@ -707,12 +730,7 @@ function wireSetup(v){
     DB.cycle.income=+$("#cin").value||0; DB.settings.rule=$("#crule").value;
     DB.settings.farePerDay=+$("#fare").value||0; save(); render(); toast("Saved");
   });
-  $("#newCycle").addEventListener("click",function(){
-    if(!confirm("Start the next cycle? Savings goals reset to unfunded.")) return;
-    DB.cycle=nextCycle(DB.cycle,DB.settings.rule);
-    DB.goals.forEach(function(g){ g.fundedCycle=null; });
-    save(); render(); toast("New cycle started");
-  });
+  $("#newCycle").addEventListener("click",rollCycle);
   $("#fare").addEventListener("change",function(){ DB.settings.farePerDay=+this.value||0; save(); });
   $("#officeCal").addEventListener("click",function(e){
     var b=e.target.closest("[data-off]"); if(!b) return;
@@ -735,6 +753,7 @@ function wireSetup(v){
   v.querySelectorAll("[data-goal]").forEach(function(b){ b.addEventListener("click",function(){ openGoal(b.dataset.goal); }); });
   v.querySelectorAll("[data-fix]").forEach(function(b){ b.addEventListener("click",function(){ openFix(b.dataset.fix); }); });
   v.querySelectorAll("[data-fund]").forEach(function(b){ b.addEventListener("click",function(){ fundGoal(b.dataset.fund); }); });
+  v.querySelectorAll("[data-take]").forEach(function(b){ b.addEventListener("click",function(){ takeGoal(b.dataset.take); }); });
   $("#accents").addEventListener("click",function(e){
     var b=e.target.closest("[data-acc]"); if(!b) return;
     DB.settings.accent=b.dataset.acc; applyTheme(); save(); renderSetup();
@@ -753,6 +772,13 @@ function wireSetup(v){
     try{ localStorage.removeItem(KEY); }catch(e){}
     DB=seedDB(); save(); render(); toast("Erased");
   });
+}
+function rollCycle(){
+  if(!confirm("Start the next cycle?\n\nBalances, loans and history stay. Savings goals go back to unfunded so you can fund them again this payday.")) return;
+  DB.cycle=nextCycle(DB.cycle,DB.settings.rule);
+  DB.cycle.adjust=0;
+  DB.goals.forEach(function(g){ g.fundedCycle=null; });
+  save(); render(); toast("Cycle now "+fmtD(DB.cycle.start)+" to "+fmtD(DB.cycle.end));
 }
 function openAdjust(){
   openSheet("Manual adjustment", fld("Amount, plus or minus","adj","number",DB.cycle.adjust||0)
@@ -795,17 +821,31 @@ function sel(k,id,opts,cur){
   opts.forEach(function(o){ h+='<option value="'+o[0]+'"'+(cur===o[0]?" selected":"")+'>'+o[1]+'</option>'; });
   return h+'</select></label>';
 }
-function openTxn(){
+function openTxn(id){
+  var T = id ? DB.txns.filter(function(x){ return x.id===id; })[0] : null;
   var cats=DB.cats.map(function(c){ return [c.id,c.name]; });
   var accts=DB.accounts.map(function(a){ return [a.id,a.name+(a.type==="credit"?" (credit)":"")]; });
-  var body=fld("Amount","txAmt","number","")+sel("What","txCat",cats,DB.cats[0].id)
-    +sel("Paid from","txAcct",accts,DB.accounts[0].id)+fld("Date","txDate","date",todayISO())
-    +fld("Note (optional)","txNote","text","");
-  openSheet("Log spending",body,function(){
+  var body=fld("Amount","txAmt","number",T?T.amt:"")
+    +sel("What","txCat",cats,T?T.cat:DB.cats[0].id)
+    +sel("Paid from","txAcct",accts,T?T.acct:DB.accounts[0].id)
+    +fld("Date","txDate","date",T?T.date:todayISO())
+    +fld("Note (optional)","txNote","text",T?T.note:"")
+    +(T?'<div class="btnrow"><button class="btn dan" id="txDel">Delete this</button></div>':'');
+  openSheet(T?"Edit spending":"Log spending",body,function(){
     var a=+$("#txAmt").value; if(!a){ toast("Enter an amount"); return false; }
-    addTxn({amt:a,cat:$("#txCat").value,acct:$("#txAcct").value,date:$("#txDate").value,note:$("#txNote").value});
+    if(T){
+      var oa=acct(T.acct);
+      if(oa) oa.bal = oa.type==="credit" ? (+oa.bal||0)-(+T.amt) : (+oa.bal||0)+(+T.amt);
+      T.amt=a; T.cat=$("#txCat").value; T.acct=$("#txAcct").value; T.date=$("#txDate").value; T.note=$("#txNote").value;
+      var na=acct(T.acct);
+      if(na) na.bal = na.type==="credit" ? (+na.bal||0)+a : (+na.bal||0)-a;
+      toast("Updated");
+    } else {
+      addTxn({amt:a,cat:$("#txCat").value,acct:$("#txAcct").value,date:$("#txDate").value,note:$("#txNote").value});
+    }
     return true;
   });
+  if(T){ var d=$("#txDel"); if(d) d.addEventListener("click",function(){ closeSheet(); delTxn(T.id); }); }
 }
 function openAcct(id){
   var A = id==="new" ? {id:uid(),name:"",type:"cash",bal:0,stmtDay:25,dueDay:15} : acct(id);
@@ -861,24 +901,46 @@ function openCat(id){
   if(id!=="new") $("#cDel").addEventListener("click",function(){ DB.cats=DB.cats.filter(function(x){return x.id!==C.id;}); closeSheet(); save(); render(); });
 }
 function openGoal(id){
-  var G = id==="new" ? {id:uid(),name:"",perCycle:0,bal:0,target:0,fundedCycle:null} : DB.goals.filter(function(g){return g.id===id;})[0];
+  var G = id==="new" ? {id:uid(),name:"",perCycle:0,bal:0,target:0,when:"eom",fundedCycle:null} : DB.goals.filter(function(g){return g.id===id;})[0];
   var body=fld("Name","gName","text",G.name)
-    +'<div class="two">'+fld("Per cycle","gPer","number",G.perCycle)+fld("Goal total","gTar","number",G.target)+'</div>'
+    +'<div class="two">'+fld("Amount each time","gPer","number",G.perCycle)+fld("Goal total","gTar","number",G.target)+'</div>'
+    +sel("When do you put money in","gWhen",[["every","Every payday"],["eom","End of month only"],["mid","15th only"]],goalWhen(G))
     +fld("Saved so far","gBal","number",G.bal)
-    +'<div class="hint">Per cycle is what comes out of each payday. The goal total is just the finish line.</div>'
+    +'<div class="hint">It is only held back from your daily number on the paydays you actually fund it. On other cutoffs it stays out of the maths entirely.</div>'
     +(id==="new"?"":'<div class="btnrow"><button class="btn dan" id="gDel">Delete</button></div>');
   openSheet(id==="new"?"New savings goal":"Edit goal",body,function(){
     G.name=$("#gName").value||"Goal"; G.perCycle=+$("#gPer").value||0; G.target=+$("#gTar").value||0; G.bal=+$("#gBal").value||0;
+    G.when=$("#gWhen").value;
     if(id==="new") DB.goals.push(G);
     return true;
   });
   if(id!=="new") $("#gDel").addEventListener("click",function(){ DB.goals=DB.goals.filter(function(x){return x.id!==G.id;}); closeSheet(); save(); render(); });
 }
+function cashAccts(){ return DB.accounts.filter(function(a){ return a.type==="cash"; }).map(function(a){ return [a.id,a.name]; }); }
 function fundGoal(id){
-  DB.goals.forEach(function(G){
-    if(G.id!==id) return;
-    G.bal=(+G.bal||0)+(+G.perCycle||0); G.fundedCycle=DB.cycle.start;
-    save(); render(); toast("Moved "+P(G.perCycle)+" to "+G.name);
+  var G=DB.goals.filter(function(g){ return g.id===id; })[0]; if(!G) return;
+  var body=fld("Amount","fgAmt","number",G.perCycle||0)+sel("Take it from","fgAcc",cashAccts(),(cashAccts()[0]||[""])[0])
+    +'<div class="hint">This moves real money. The account goes down, the goal goes up, and your daily number does not change because the savings were already held back.</div>';
+  openSheet("Fund "+G.name,body,function(){
+    var a=+$("#fgAmt").value||0; if(!a){ toast("Enter an amount"); return false; }
+    var A=acct($("#fgAcc").value);
+    if(A) A.bal=(+A.bal||0)-a;
+    G.bal=(+G.bal||0)+a; G.fundedCycle=DB.cycle.start;
+    toast("Moved "+P(a)+" to "+G.name);
+    return true;
+  });
+}
+function takeGoal(id){
+  var G=DB.goals.filter(function(g){ return g.id===id; })[0]; if(!G) return;
+  var body=fld("Amount","tgAmt","number","")+sel("Put it into","tgAcc",cashAccts(),(cashAccts()[0]||[""])[0])
+    +'<div class="hint">Spending your savings. The goal goes down, the account goes up.</div>';
+  openSheet("Take from "+G.name,body,function(){
+    var a=+$("#tgAmt").value||0; if(!a){ toast("Enter an amount"); return false; }
+    var A=acct($("#tgAcc").value);
+    if(A) A.bal=(+A.bal||0)+a;
+    G.bal=Math.max(0,(+G.bal||0)-a);
+    toast("Took "+P(a)+" from "+G.name);
+    return true;
   });
 }
 function openFix(id){
@@ -958,7 +1020,7 @@ document.querySelector("nav").addEventListener("click",function(e){
   var b=e.target.closest("button"); if(!b) return;
   VIEW=b.dataset.v; render();
 });
-$("#fab").addEventListener("click",openTxn);
+$("#fab").addEventListener("click",function(){ openTxn(null); });
 
 /* drag the sheet down to dismiss */
 (function(){

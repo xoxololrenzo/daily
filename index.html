@@ -189,7 +189,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 <script>
 "use strict";
 /* ===== Daily v1.1 — everything stays in this browser. No personal data in this file. ===== */
-var VER="1.3", KEY="daily.v1";
+var VER="1.4", KEY="daily.v1";
 var $=function(s,r){ return (r||document).querySelector(s); };
 var el=function(t){ return document.createElement(t); };
 var ACCENTS=["#1D6FA3","#1F6B4F","#8A3E9E","#C2740A","#A8341E","#2B6DB0","#0E7C86","#B03A6B"];
@@ -309,6 +309,11 @@ function isOfficeDay(d){ return DB.office.indexOf(d)>-1; }
 function fareFor(d){ return isOfficeDay(d) ? (+DB.settings.farePerDay||0) : 0; }
 function officeDaysIn(a,b){ var n=0; DB.office.forEach(function(d){ if(d>=a&&d<=b) n++; }); return n; }
 function daysLeft(){ var t=todayISO(); if(t>DB.cycle.end) return 1; if(t<DB.cycle.start) return between(DB.cycle.start,DB.cycle.end)+1; return between(t,DB.cycle.end)+1; }
+function notSetUp(){
+  var anyBal=false;
+  DB.accounts.forEach(function(a){ if(a.type==="cash" && (+a.bal||0)!==0) anyBal=true; });
+  return !anyBal && DB.txns.length===0;
+}
 function freeToSpend(){ return onHand() - committedTotal() - fareReserve() - goalsUnfunded() + (+DB.cycle.adjust||0); }
 function perDayBase(){ var d=daysLeft(); return d>0?freeToSpend()/d:freeToSpend(); }
 function todayAllowance(){ return perDayBase() + fareFor(todayISO()) - spentOn(todayISO()); }
@@ -335,9 +340,26 @@ function renderToday(){
   h+='<div class="vhead"><h1>Today</h1><span class="sub">'+fmtD(DB.cycle.start)+" – "+fmtD(DB.cycle.end)
     +'<br>'+(DB.cycle.income?("Pay this cycle "+P(DB.cycle.income)):"")+'</span></div>';
 
+  if(notSetUp()){
+    h+='<div class="hero"><div class="lbl">Nothing entered yet</div>'
+      +'<div class="big" style="font-size:38px">Set up first</div>'
+      +'<div class="note">The daily number is worked out from the money in your accounts. Right now they are all at zero, so there is nothing to divide.</div>'
+      +'<div class="btnrow" style="margin-top:16px"><button class="btn" id="goMoney">Enter my balances</button></div>'
+      +'<div class="btnrow"><button class="btn sec" id="goSetup">Import my seed file</button></div></div>';
+    h+='<div class="card"><h2>Three things to do</h2>'
+      +'<div class="row"><div class="g"><div class="t">1. Import your seed file</div><div class="s">Setup \u00b7 Your data \u00b7 Import. Loads your loans and history.</div></div></div>'
+      +'<div class="row"><div class="g"><div class="t">2. Put in your real balances</div><div class="s">Money tab. Tap each account.</div></div></div>'
+      +'<div class="row"><div class="g"><div class="t">3. Tap your office days</div><div class="s">Setup \u00b7 Office days. Fare is held back only for those.</div></div></div></div>';
+    v.innerHTML=h;
+    var gm=$("#goMoney"), gs=$("#goSetup");
+    if(gm) gm.addEventListener("click",function(){ VIEW="money"; render(); });
+    if(gs) gs.addEventListener("click",function(){ VIEW="setup"; render(); });
+    return;
+  }
   h+='<div class="hero"><div class="lbl">You can spend</div>'
     +'<div class="big num'+(allow<0?" over":"")+'">'+P(allow)+'</div>'
-    +'<div class="note">'+(allow<0?("Over by "+P(-allow)+". Tomorrow shrinks.")
+    +'<div class="note">'+(freeToSpend()<0?("Your loans, fare and savings come to "+P(-freeToSpend())+" more than you have. Something has to give.")
+        :allow<0?("Over by "+P(-allow)+". Tomorrow shrinks.")
         :(fare? (P(base)+" to spend + "+P(fare)+" fare, office day")
               : (daysLeft()+" day"+(daysLeft()===1?"":"s")+" left in this cycle")))+'</div>'
     +'<div class="bar"><i class="'+(spent>cap?"hot":"")+'" style="width:'+pct+'%"></i></div>'
@@ -455,7 +477,7 @@ function renderCal(){
   var v=$("#v-cal");
   var base=new Date(); base.setDate(1); base.setMonth(base.getMonth()+calOff);
   var y=base.getFullYear(),m=base.getMonth();
-  var start=new Date(y,m,1).getDay(), n=lastDay(y,m), t=todayISO(), per=perDayBase();
+  var start=new Date(y,m,1).getDay(), n=lastDay(y,m), t=todayISO(), per=perDayBase(), blank=notSetUp();
   var h="";
 
   h+='<div class="vhead"><h1>'+MON[m]+" "+y+'</h1><div style="display:flex;gap:6px">'
@@ -477,7 +499,7 @@ function renderCal(){
     if(past && val!=null) cls += (val<=per?" under":" over");
     h+='<div class="'+cls+'"><span class="d">'+d+'</span><span class="a num">'
       +(past ? (val!=null? Math.round(val).toLocaleString("en-US") : "–")
-             : (inCycle(ds)? Math.round(per).toLocaleString("en-US") : "–"))+'</span></div>';
+             : (inCycle(ds)? (blank? "–" : Math.round(per+fareFor(ds)).toLocaleString("en-US")) : "–"))+'</span></div>';
   }
   h+='</div><div class="hint">Past days show what you actually spent. Green means you came in under the line, red over. Future days in this cycle show what you can spend at today’s pace.</div></div>';
 

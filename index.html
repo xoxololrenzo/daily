@@ -145,10 +145,11 @@ button.day{font:inherit;cursor:pointer}
 .empty{text-align:center;color:var(--muted);font-size:13.5px;padding:22px 12px;line-height:1.5}
 .hint{font-size:12.5px;color:var(--muted);margin-top:9px;line-height:1.45}
 
-.scrim{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;display:none}
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;display:none;touch-action:none;overscroll-behavior:none}
 .scrim.on{display:block}
-.sheet{position:fixed;left:0;right:0;bottom:0;z-index:51;background:var(--surface);border-radius:18px 18px 0 0;padding:16px 16px calc(18px + var(--safe-b));max-height:90vh;overflow-y:auto;transform:translateY(101%);transition:transform .22s ease-out;max-width:560px;margin:0 auto}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:51;background:var(--surface);border-radius:18px 18px 0 0;padding:16px 16px calc(18px + var(--safe-b));max-height:85dvh;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;transform:translateY(101%);transition:transform .22s ease-out;max-width:560px;margin:0 auto}
 .sheet.on{transform:translateY(0)}
+body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 .sheet h3{margin:0 0 14px;font-size:17px;font-weight:700}
 .grab{width:36px;height:4px;border-radius:3px;background:var(--rule-2);margin:0 auto 13px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -187,7 +188,7 @@ button.day{font:inherit;cursor:pointer}
 <script>
 "use strict";
 /* ===== Daily v1.1 — everything stays in this browser. No personal data in this file. ===== */
-var VER="1.1", KEY="daily.v1";
+var VER="1.2", KEY="daily.v1";
 var $=function(s,r){ return (r||document).querySelector(s); };
 var el=function(t){ return document.createElement(t); };
 var ACCENTS=["#1D6FA3","#1F6B4F","#8A3E9E","#C2740A","#A8341E","#2B6DB0","#0E7C86","#B03A6B"];
@@ -735,11 +736,24 @@ function openSheet(title,body,onSave){
   var s=$("#sheet");
   s.innerHTML='<div class="grab"></div><h3>'+esc(title)+'</h3>'+body
     +'<div class="btnrow"><button class="btn" id="shSave">Save</button><button class="btn sec" id="shX">Cancel</button></div>';
+  lockBody();
   $("#scrim").classList.add("on"); s.classList.add("on");
+  s.scrollTop=0;
   $("#shX").addEventListener("click",closeSheet);
   $("#shSave").addEventListener("click",function(){ if(onSave()!==false){ closeSheet(); save(); render(); } });
 }
-function closeSheet(){ $("#sheet").classList.remove("on"); $("#scrim").classList.remove("on"); }
+function closeSheet(){ $("#sheet").classList.remove("on"); $("#scrim").classList.remove("on"); unlockBody(); }
+var lockY=0;
+function lockBody(){
+  lockY = window.scrollY || window.pageYOffset || 0;
+  document.body.style.top = (-lockY)+"px";
+  document.body.classList.add("locked");
+}
+function unlockBody(){
+  document.body.classList.remove("locked");
+  document.body.style.top = "";
+  window.scrollTo(0, lockY);
+}
 $("#scrim").addEventListener("click",closeSheet);
 function fld(k,id,type,val){
   return '<label class="f"><span class="k">'+k+'</span><input id="'+id+'" type="'+type+'"'

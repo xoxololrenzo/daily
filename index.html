@@ -192,7 +192,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 <script>
 "use strict";
 /* ===== Daily v1.1 — everything stays in this browser. No personal data in this file. ===== */
-var VER="1.11", KEY="daily.v1";
+var VER="1.16", KEY="daily.v1";
 var $=function(s,r){ return (r||document).querySelector(s); };
 var el=function(t){ return document.createElement(t); };
 var ACCENTS=["#1D6FA3","#1F6B4F","#8A3E9E","#C2740A","#A8341E","#2B6DB0","#0E7C86","#B03A6B"];
@@ -226,7 +226,7 @@ function seedDB(){
       {id:"night",    name:"Night out", def:400,env:"fun"},
       {id:"other",    name:"Other",     def:0,  env:"fun"}
     ],
-    goals:[], fixed:[], loans:[], txns:[], office:[], hist:{}
+    goals:[], fixed:[], loans:[], txns:[], office:[], hist:{}, reserved:0
   };
 }
 
@@ -266,6 +266,7 @@ function migrate(){
   for(k in d) if(!(k in DB)) DB[k]=d[k];
   for(k in d.settings) if(!(k in DB.settings)) DB.settings[k]=d.settings[k];
   if(DB.cycle && DB.cycle.adjust==null) DB.cycle.adjust=0;
+  if(DB.reserved==null) DB.reserved=0;
   // v1 -> v2 : envelope.acct (single) becomes envelope.accts (array)
   (DB.envelopes||[]).forEach(function(e){
     if(!e.accts) e.accts = e.acct ? [e.acct] : [];
@@ -346,7 +347,17 @@ function notSetUp(){
   DB.accounts.forEach(function(a){ if(a.type==="cash" && (+a.bal||0)!==0) anyBal=true; });
   return !anyBal && DB.txns.length===0;
 }
-function freeToSpend(){ return onHand() - committedTotal() - fareReserve() - goalsUnfunded() + (+DB.cycle.adjust||0); }
+function reserved(){ return +DB.reserved||0; }
+function spendable(){ return onHand()-reserved(); }
+function freeToSpend(){ return onHand() - reserved() - committedTotal() - fareReserve() - goalsUnfunded() + (+DB.cycle.adjust||0); }
+function elapsedDays(){
+  var t=todayISO(), a=DB.cycle.start, b=(t<DB.cycle.end?t:DB.cycle.end);
+  return (b<a) ? 0 : between(a,b)+1;
+}
+function avgSoFar(){
+  var n=elapsedDays(); if(n<=0) return 0;
+  return spentRange(DB.cycle.start,(todayISO()<DB.cycle.end?todayISO():DB.cycle.end))/n;
+}
 function shortfall(){ var f=freeToSpend(); return f<0 ? -f : 0; }
 function perDayBase(){ var f=freeToSpend(); if(f<0) return 0; var d=daysLeft(); return d>0?f/d:f; }
 function todayAllowance(){ return perDayBase() + fareFor(todayISO()) - spentOn(todayISO()); }
@@ -405,8 +416,17 @@ function renderToday(){
         :(fare? (P(base)+" to spend + "+P(fare)+" fare, office day")
               : (daysLeft()+" day"+(daysLeft()===1?"":"s")+" left in this cycle")))+'</div>'
     +'<div class="bar"><i class="'+(spent>cap?"hot":"")+'" style="width:'+pct+'%"></i></div>'
-    +'<div class="split"><span class="num">'+P(spent)+' spent today</span><span class="num">'+(shortfall()?"nothing free":P(cap)+" today\u2019s cap")+'</span></div></div>';
+    +'<div class="split"><span class="num">'+P(spent)+' spent today</span><span class="num">'+(shortfall()?"nothing free":(P(base)+(fare?" + "+P(fare)+" fare":" \u00b7 no office day")))+'</span></div></div>';
 
+  if(shortfall()){
+    h+='<div class="card" style="border-color:var(--alarm)"><h2 style="color:var(--alarm)">Ways to close the '+P(shortfall())+'</h2>'
+      +'<div class="row"><div class="g"><div class="t">Log money that has landed</div><div class="s">Pay, a refund, a transfer in. Use the + button or update the balance in Money.</div></div></div>'
+      +(reserved()>0?'<button class="row" data-go2="reserved"><div class="g"><div class="t">Release some of your set-aside</div><div class="s">'+P(reserved())+' is held back from past cycles</div></div><span class="chev">\u203a</span></button>':'')
+      +(fareReserve()>0?'<button class="row" data-go2="setup"><div class="g"><div class="t">Untick office days you are not going in</div><div class="s">'+P(fareReserve())+' is reserved for fare</div></div><span class="chev">\u203a</span></button>':'')
+      +(committedTotal()>0?'<button class="row" data-go2="loans"><div class="g"><div class="t">Tick off anything already paid</div><div class="s">'+P(committedTotal())+' of loans and bills still showing unpaid</div></div><span class="chev">\u203a</span></button>':'')
+      +(goalsUnfunded()>0?'<button class="row" data-go2="setup"><div class="g"><div class="t">Pause a savings goal this cycle</div><div class="s">'+P(goalsUnfunded())+' is being held back</div></div><span class="chev">\u203a</span></button>':'')
+      +'<div class="hint">If none of those apply, the number is telling you the truth: this cycle genuinely owes more than it holds. Better to see it now than on the due date.</div></div>';
+  }
   h+='<div class="card"><h2>Suggestions</h2><div class="chips" id="quick">';
   DB.cats.forEach(function(c){ if(c.def) h+='<button class="chip" data-cat="'+c.id+'"><b>'+esc(c.name)+'</b><span class="num">'+P(c.def)+'</span></button>'; });
   h+='</div><div class="hint">Tap to log at the usual amount. Use the + button for anything else.</div></div>';
@@ -435,6 +455,11 @@ function renderToday(){
 
   v.innerHTML=h;
   var rn=$("#rollNow"); if(rn) rn.addEventListener("click",rollCycle);
+  v.querySelectorAll("[data-go2]").forEach(function(b){ b.addEventListener("click",function(){
+    var g=b.dataset.go2;
+    if(g==="reserved"){ VIEW="setup"; render(); openReserved(); }
+    else { VIEW=g; render(); }
+  }); });
   $("#quick").addEventListener("click",function(e){ var b=e.target.closest("button"); if(b) quickLog(cat(b.dataset.cat)); });
   $("#affordGo").addEventListener("click",afford);
   $("#affordAmt").addEventListener("keydown",function(e){ if(e.key==="Enter") afford(); });
@@ -463,6 +488,7 @@ function afford(){
 function renderMoney(){
   var v=$("#v-money"),h="";
   h+='<div class="vhead"><h1>Money</h1><span class="sub num">'+P(onHand())+' on hand</span></div>';
+  if(reserved()>0) h+='<div class="card" style="margin-bottom:11px"><div class="row" style="padding-top:0"><div class="g"><div class="t">Spendable this cycle</div><div class="s">what the daily number divides</div></div><div class="v num">'+P(spendable())+'</div></div><div class="row"><div class="g"><div class="t">Set aside from past cycles</div><div class="s">in your accounts, not budgeted</div></div><div class="v num">'+P(reserved())+'</div></div></div>';
   h+='<div class="btnrow" style="margin:0 0 12px"><button class="btn sec" id="xferBtn">Move money between accounts</button></div>';
 
   DB.envelopes.forEach(function(E){
@@ -471,8 +497,9 @@ function renderMoney(){
     if(!(E.accts||[]).length) h+='<div class="empty">No accounts in this envelope.</div>';
     (E.accts||[]).forEach(function(id){
       var A=acct(id); if(!A) return;
-      h+='<button class="row" data-bal="'+A.id+'"><div class="g"><div class="t">'+esc(A.name)+'</div>'
-        +'<div class="s">tap to update balance</div></div><div class="v num">'+P(+A.bal||0)+'</div><span class="chev">›</span></button>';
+      var neg=(+A.bal||0)<0;
+      h+='<button class="row" data-bal="'+A.id+'"><div class="g"><div class="t">'+esc(A.name)+(neg?' <span class="pill no">below zero</span>':'')+'</div>'
+        +'<div class="s">'+(neg?'More logged than this account holds. Fix a transaction, or set the real balance.':'tap to update balance')+'</div></div><div class="v num'+(neg?' neg':'')+'">'+P(+A.bal||0)+'</div><span class="chev">›</span></button>';
     });
     h+='<div class="sub-acct"><span>Spent this cycle</span><span class="num">'+P(sp)+'</span></div></div>';
   });
@@ -541,25 +568,31 @@ function renderCal(){
     if(!inCycle(ds)) cls+=" out";
     if(ds===t) cls+=" today";
     var past = ds<=t;
-    if(past && val!=null) cls += (val<=per?" under":" over");
+    var mark = past ? avgSoFar() : per;
+    if(past && val!=null && mark>0) cls += (val<=mark?" under":" over");
     h+='<div class="'+cls+'"><span class="d">'+d+'</span><span class="a num">'
       +(past ? (val!=null? Math.round(val).toLocaleString("en-US") : "–")
              : (inCycle(ds)? (blank? "–" : Math.round(per+fareFor(ds)).toLocaleString("en-US")) : "–"))+'</span></div>';
   }
-  h+='</div><div class="hint">Past days show what you actually spent. Green means you came in under the line, red over. Future days in this cycle show what you can spend at today’s pace.</div></div>';
+  h+='</div><div class="hint">Past days show what you actually spent, green if it was a lighter day than your average so far this cycle, red if heavier. Future days show what you can spend at today’s pace, with fare added on the days you go in.</div></div>';
 
   h+='<div class="card"><h2>Pace, week by week</h2>'
-    +'<div class="hint" style="margin-top:0;margin-bottom:10px">Your cycle ('+fmtD(DB.cycle.start)+' to '+fmtD(DB.cycle.end)+') split into seven-day blocks. Left is what you spent, right is what the daily allowance plus fare for the office days in that block would have allowed.</div>';
+    +'<div class="hint" style="margin-top:0;margin-bottom:10px">Your cycle ('+fmtD(DB.cycle.start)+' to '+fmtD(DB.cycle.end)+') in seven-day blocks. Weeks that are over show only what you spent, because the allowance back then was not the one you have now. The current and later weeks show spent against what is still left.</div>';
   var s=DB.cycle.start,wi=1;
   while(s<=DB.cycle.end){
     var e=addD(s,6); if(e>DB.cycle.end) e=DB.cycle.end;
-    var sp=spentRange(s,e), cap=per*(between(s,e)+1)+officeDaysIn(s,e)*(+DB.settings.farePerDay||0);
+    var sp=spentRange(s,e), gone = e < todayISO();
+    var cap=per*(between(s,e)+1)+officeDaysIn(s,e)*(+DB.settings.farePerDay||0);
     var p = cap>0?Math.min(100,sp/cap*100):0;
     h+='<div style="padding:10px 0;border-bottom:1px solid var(--rule)">'
-      +'<div style="display:flex;justify-content:space-between;align-items:baseline">'
+      +'<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">'
       +'<div><b>Week '+wi+'</b> <span style="font-size:12.5px;color:var(--muted)">'+fmtD(s)+" – "+fmtD(e)+'</span></div>'
-      +'<div class="num" style="font-weight:700;color:'+(sp>cap?"var(--alarm)":"var(--ink)")+'">'+P(sp)+' <span style="color:var(--muted);font-weight:400">/ '+P(cap)+'</span></div></div>'
-      +'<div class="bar" style="margin:7px 0 0;height:5px"><i class="'+(sp>cap?"hot":"gd")+'" style="width:'+p+'%"></i></div></div>';
+      +(gone
+        ? '<div class="num" style="font-weight:700">'+P(sp)+' <span style="color:var(--muted);font-weight:400;font-size:12.5px">spent</span></div>'
+        : '<div class="num" style="font-weight:700;color:'+(sp>cap?"var(--alarm)":"var(--ink)")+'">'+P(sp)+' <span style="color:var(--muted);font-weight:400">/ '+P(cap)+'</span></div>')
+      +'</div>'
+      +(gone ? '' : '<div class="bar" style="margin:7px 0 0;height:5px"><i class="'+(sp>cap?"hot":"gd")+'" style="width:'+p+'%"></i></div>')
+      +'</div>';
     s=addD(e,1); wi++;
   }
   h+='</div>';
@@ -688,6 +721,7 @@ function renderSetup(){
 
   h+='<div class="card"><h2>Where the money goes</h2>'
     +erow("Money on hand",onHand(),"money","across your accounts")
+    +erow("Set aside from past cycles",-reserved(),"reserved","sitting in your accounts, kept out of the budget")
     +erow("Loans and bills this cycle",-committedTotal(),"loans",commitments().length+" items")
     +erow("Fare set aside",-fareReserve(),"fare",officeDaysLeft()+" office days left at "+P(DB.settings.farePerDay)+", nothing on other days")
     +erow("Savings not yet funded",-goalsUnfunded(),"goals",DB.goals.filter(goalDue).length+" of "+DB.goals.length+" land in this window")
@@ -807,6 +841,7 @@ function wireSetup(v){
       if(g==="money"){ VIEW="money"; render(); }
       else if(g==="loans"){ VIEW="loans"; render(); }
       else if(g==="adjust") openAdjust();
+      else if(g==="reserved") openReserved();
       else document.querySelector('[data-'+(g==="fare"?"off":"goal")+']') && window.scrollTo(0,document.body.scrollHeight/2);
     });
   });
@@ -836,12 +871,71 @@ function wireSetup(v){
     DB=seedDB(); save(); render(); toast("Erased");
   });
 }
+function biggestCash(){
+  var best=null;
+  DB.accounts.forEach(function(a){ if(a.type!=="cash") return; if(!best||(+a.bal||0)>(+best.bal||0)) best=a; });
+  return best;
+}
 function rollCycle(){
-  if(!confirm("Start the next cycle?\n\nBalances, loans and history stay. Savings goals go back to unfunded so you can fund them again this payday.")) return;
+  var any=false;
+  DB.accounts.forEach(function(x){ if(x.type==="cash" && Math.round(+x.bal||0)>0) any=true; });
+  if(any) return openSweep();
+  doRoll();
+}
+function openSweep(){
+  var cash=DB.accounts.filter(function(x){ return x.type==="cash" && Math.round(+x.bal||0)>0; });
+  var opts=[["__set","Set aside"],["__budget","Budget it next cycle"]];
+  DB.goals.forEach(function(g){ opts.push(["g:"+g.id,"To "+g.name]); });
+  var tot=0; cash.forEach(function(x){ tot+=Math.round(+x.bal||0); });
+
+  var body='<div class="hint" style="margin-top:0;margin-bottom:6px">Whatever is sitting in your accounts now is last cycle’s leftover, <b>'+P(tot)+'</b> in total. Decide what happens to each one. <b>Set aside</b> keeps the money where it is but takes it out of the budget, so the new cutoff only divides the pay it actually gives you.</div>';
+  cash.forEach(function(x){
+    body+='<div style="padding:12px 0;border-bottom:1px solid var(--rule)">'
+      +'<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">'
+      +'<b>'+esc(x.name)+'</b><span class="num" style="color:var(--muted)">'+P(+x.bal||0)+'</span></div>'
+      +'<div class="two">'
+      +'<label class="f" style="margin:0"><span class="k">Amount</span><input id="sw_a_'+x.id+'" type="number" inputmode="decimal" value="'+Math.round(+x.bal||0)+'"></label>'
+      +'<label class="f" style="margin:0"><span class="k">What to do</span><select id="sw_t_'+x.id+'">'
+      +opts.map(function(o){ return '<option value="'+o[0]+'"'+(o[0]==="__set"?" selected":"")+'>'+o[1]+'</option>'; }).join("")
+      +'</select></label></div></div>';
+  });
+  body+='<div class="hint"><b>Budget it next cycle</b> adds that account back into the daily number, which is the old behaviour. <b>To a goal</b> moves the money out of the account entirely.</div>';
+
+  openSheet("Leftover · "+P(tot),body,function(){
+    var setAside=0, moved=0;
+    cash.forEach(function(x){
+      var amt=+($("#sw_a_"+x.id)||{}).value||0;
+      var what=($("#sw_t_"+x.id)||{}).value||"__budget";
+      if(amt<=0) return;
+      if(what==="__set"){ setAside+=amt; return; }
+      if(what==="__budget") return;
+      var gid=what.slice(2);
+      var G=DB.goals.filter(function(g){ return g.id===gid; })[0];
+      if(G){ x.bal=(+x.bal||0)-amt; G.bal=(+G.bal||0)+amt; moved+=amt; }
+    });
+    if(setAside>0) DB.reserved=(+DB.reserved||0)+setAside;
+    var msg=[];
+    if(setAside>0) msg.push(P(setAside)+" set aside");
+    if(moved>0) msg.push(P(moved)+" moved to savings");
+    doRoll(true);
+    if(msg.length) toast(msg.join(", "));
+    return true;
+  });
+}
+
+function doRoll(quiet){
+  if(!quiet && !confirm("Start the next cycle?\n\nBalances, loans and history stay. Savings goals go back to unfunded so you can fund them again this payday.")) return;
   DB.cycle=nextCycle(DB.cycle,DB.settings.rule);
   DB.cycle.adjust=0;
   DB.goals.forEach(function(g){ g.fundedCycle=null; });
-  save(); render(); toast("Cycle now "+fmtD(DB.cycle.start)+" to "+fmtD(DB.cycle.end));
+  save(); render();
+  if(!quiet) toast("Cycle now "+fmtD(DB.cycle.start)+" to "+fmtD(DB.cycle.end));
+}
+function openReserved(){
+  openSheet("Set aside from past cycles",
+    fld("Amount","rsv","number",reserved())
+    +'<div class="hint">Money that is still in your accounts but must not be budgeted. Leftovers land here at the end of each cycle, so a new cutoff only ever divides what that cutoff actually paid you. Lower this number if you decide to spend some of it.</div>',
+    function(){ DB.reserved=Math.max(0,+$("#rsv").value||0); return true; });
 }
 function openAdjust(){
   openSheet("Manual adjustment", fld("Amount, plus or minus","adj","number",DB.cycle.adjust||0)

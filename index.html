@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -198,7 +201,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 <script>
 "use strict";
 /* ===== Daily v1.1 — everything stays in this browser. No personal data in this file. ===== */
-var VER="1.18", KEY="daily.v1";
+var VER="1.19", KEY="daily.v1";
 var $=function(s,r){ return (r||document).querySelector(s); };
 var el=function(t){ return document.createElement(t); };
 var ACCENTS=["#1D6FA3","#1F6B4F","#8A3E9E","#C2740A","#A8341E","#2B6DB0","#0E7C86","#B03A6B"];
@@ -815,7 +818,7 @@ function renderSetup(){
     +'<div class="hint" style="margin-top:0;margin-bottom:12px">Stored in this browser only. Export before big changes. Never put card numbers, PINs or passwords in here.</div>'
     +'<div class="btnrow" style="margin-top:0"><button class="btn sec" id="expBtn">Export backup</button><button class="btn sec" id="impBtn">Import</button></div>'
     +'<input type="file" id="impFile" accept="application/json,.json" style="display:none">'
-    +'<div class="btnrow"><button class="btn dan" id="wipeBtn">Erase everything</button></div>'
+    +'<div class="btnrow"><button class="btn sec" id="updBtn">Check for app update</button></div>'+'<div class="btnrow"><button class="btn dan" id="wipeBtn">Erase everything</button></div>'
     +'<div class="hint">Daily v'+VER+' · '+DB.txns.length+' logged · '+DB.loans.length+' scheduled payments</div></div>';
 
   v.innerHTML=h;
@@ -880,6 +883,7 @@ function wireSetup(v){
     DB.settings.theme = t==="auto"?"light":(t==="light"?"dark":"auto");
     applyTheme(); save(); renderSetup();
   });
+  $("#updBtn").addEventListener("click",forceUpdate);
   $("#expBtn").addEventListener("click",doExport);
   $("#impBtn").addEventListener("click",function(){ $("#impFile").click(); });
   $("#impFile").addEventListener("change",doImport);
@@ -1274,6 +1278,16 @@ function doImport(e){
     }catch(err){ toast("That file could not be read"); }
   };
   r.readAsText(f); e.target.value="";
+}
+function forceUpdate(){
+  toast("Checking for a new version…");
+  var url=location.href.split("#")[0];
+  url += (url.indexOf("?")>-1?"&":"?")+"_cb="+Date.now();
+  fetch(url,{cache:"reload"}).then(function(){
+    setTimeout(function(){ location.replace(url); },300);
+  }).catch(function(){
+    location.replace(url);
+  });
 }
 function applyTheme(){
   var t=DB.settings.theme||"auto";

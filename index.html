@@ -204,7 +204,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 <script>
 "use strict";
 /* ===== Daily v1.1 — everything stays in this browser. No personal data in this file. ===== */
-var VER="1.22", KEY="daily.v1";
+var VER="1.23", KEY="daily.v1";
 var $=function(s,r){ return (r||document).querySelector(s); };
 var el=function(t){ return document.createElement(t); };
 var ACCENTS=["#1D6FA3","#1F6B4F","#8A3E9E","#C2740A","#A8341E","#2B6DB0","#0E7C86","#B03A6B"];
@@ -279,6 +279,14 @@ function migrate(){
   for(k in d) if(!(k in DB)) DB[k]=d[k];
   for(k in d.settings) if(!(k in DB.settings)) DB.settings[k]=d.settings[k];
   if(DB.cycle && DB.cycle.adjust==null) DB.cycle.adjust=0;
+  // an empty list is as broken as a missing one: put the defaults back
+  ["cats","accounts","envelopes"].forEach(function(key){
+    if(!Array.isArray(DB[key]) || !DB[key].length) DB[key]=d[key];
+  });
+  ["loans","fixed","goals","txns","office"].forEach(function(key){
+    if(!Array.isArray(DB[key])) DB[key]=[];
+  });
+  if(!DB.hist || typeof DB.hist!=="object") DB.hist={};
   if(DB.reserved==null) DB.reserved=0;
   // v1 -> v2 : envelope.acct (single) becomes envelope.accts (array)
   (DB.envelopes||[]).forEach(function(e){
@@ -1337,14 +1345,16 @@ function sel(k,id,opts,cur){
 }
 function openTxn(id,preKind){
   var T = id ? DB.txns.filter(function(x){ return x.id===id; })[0] : null;
+  if(!DB.accounts.length){ toast("Add an account in Setup first"); return; }
+  if(!DB.cats.length){ toast("Add a category in Setup first"); return; }
   var cats=DB.cats.map(function(c){ return [c.id,c.name]; });
   var accts=DB.accounts.map(function(a){ return [a.id,a.name+(a.type==="credit"?" (credit)":"")]; });
   var kinds=[["exp","Money out"],["inc","Money in"],["xfer","Transfer"]];
   if(!T) kinds.push(["borrow","Borrowed money"]);
   var body=sel("Type","txKind",kinds,T?(T.kind||"exp"):(preKind||"exp"))
     +fld("Amount","txAmt","number",T?T.amt:"")
-    +'<div id="txCatWrap">'+sel("What","txCat",cats,T?T.cat:DB.cats[0].id)+'</div>'
-    +sel("From","txAcct",accts,T?T.acct:DB.accounts[0].id)
+    +'<div id="txCatWrap">'+sel("What","txCat",cats,(T&&T.cat)?T.cat:DB.cats[0].id)+'</div>'
+    +sel("From","txAcct",accts,(T&&T.acct)?T.acct:DB.accounts[0].id)
     +'<div id="txToWrap">'+sel("To","txTo",accts,(T&&T.to)?T.to:(DB.accounts[1]||DB.accounts[0]).id)
       +fld("Transfer fee","txFee","number",(T&&T.fee)?T.fee:"")
       +'<div class="hint" style="margin-top:-2px">Cash-in, cash-out or send-money charges. It comes out of the account you send from and counts as spending.</div>'+'</div>'
@@ -1586,6 +1596,7 @@ function addTxn(t){
 function quickLog(c){
   if(!c) return;
   var E=env(c.env);
+  if(!DB.accounts.length){ toast("Add an account in Setup first"); return; }
   var a = (E && (E.accts||[]).length) ? E.accts[0] : DB.accounts[0].id;
   addTxn({amt:c.def,cat:c.id,acct:a,date:todayISO(),note:""});
 }

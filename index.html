@@ -100,6 +100,12 @@ nav button[aria-current="true"]{color:var(--accent)}
 button.row{width:100%;background:none;border:none;border-bottom:1px solid var(--rule);font:inherit;color:inherit;text-align:left;cursor:pointer}
 button.row:active{background:var(--surface-2)}
 .chev{color:var(--muted);font-size:17px;flex:none}
+.acctgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:8px}
+.acct{background:var(--surface-2);border:1px solid var(--rule);border-radius:11px;padding:11px 12px;display:flex;flex-direction:column;gap:3px;align-items:flex-start;font:inherit;color:var(--ink);cursor:pointer;text-align:left}
+.acct:active{background:var(--surface-3)}
+.acct .an{font-size:12px;color:var(--muted);font-weight:600}
+.acct .av{font-size:17px;font-weight:700;letter-spacing:-.02em}
+.acct .av.neg{color:var(--alarm)}
 .sub-acct{display:flex;justify-content:space-between;font-size:13px;color:var(--muted);padding:5px 0 0 0}
 
 .chips{display:flex;flex-wrap:wrap;gap:7px}
@@ -179,7 +185,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 
 <nav>
   <button data-v="today" aria-current="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Today</button>
-  <button data-v="money"><svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="13" rx="2"/><path d="M2 11h20"/><circle cx="17" cy="15" r="1.3"/></svg>Money</button>
+  <button data-v="money"><svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="13" rx="2"/><path d="M2 11h20"/><circle cx="17" cy="15" r="1.3"/></svg>Envelopes</button>
   <button data-v="cal"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Calendar</button>
   <button data-v="loans"><svg viewBox="0 0 24 24"><path d="M3 17V9M8.5 17V6M14 17v-7M19.5 17V4"/><path d="M3 21h18"/></svg>Loans</button>
   <button data-v="setup"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="8" cy="17" r="2"/></svg>Setup</button>
@@ -192,7 +198,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 <script>
 "use strict";
 /* ===== Daily v1.1 — everything stays in this browser. No personal data in this file. ===== */
-var VER="1.16", KEY="daily.v1";
+var VER="1.18", KEY="daily.v1";
 var $=function(s,r){ return (r||document).querySelector(s); };
 var el=function(t){ return document.createElement(t); };
 var ACCENTS=["#1D6FA3","#1F6B4F","#8A3E9E","#C2740A","#A8341E","#2B6DB0","#0E7C86","#B03A6B"];
@@ -239,6 +245,7 @@ function addD(s,n){ var d=parse(s); d.setDate(d.getDate()+n); return iso(d); }
 function between(a,b){ return Math.round((parse(b)-parse(a))/86400000); }
 var MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 var DOW=["S","M","T","W","T","F","S"];
+var DAYS=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 function fmtD(s){ var d=parse(s); return d.getDate()+" "+MON[d.getMonth()]; }
 function lastDay(y,m){ return new Date(y,m+1,0).getDate(); }
 function defaultCycle(t){
@@ -378,78 +385,77 @@ function render(){
 /* ---------- TODAY ---------- */
 var recFilter="today";
 function renderToday(){
-  var v=$("#v-today"), t=todayISO();
+  var v=$("#v-today"), t=todayISO(), td=parse(t);
   var fare=fareFor(t), base=perDayBase(), cap=base+fare;
   var allow=todayAllowance(), spent=spentOn(t);
   var pct = cap>0 ? Math.max(0,Math.min(100,spent/cap*100)) : (spent>0?100:0);
   var h="";
 
-  if(todayISO()>DB.cycle.end){
+  h+='<div class="vhead"><div><h1>'+DAYS[td.getDay()]+'</h1>'
+    +'<div style="font-size:13px;color:var(--muted);margin-top:2px">'+fmtD(t)+' '+td.getFullYear()+'</div></div>'
+    +'<span class="sub">'+fmtD(DB.cycle.start)+" – "+fmtD(DB.cycle.end)
+    +(DB.cycle.income?'<br>Pay '+P(DB.cycle.income):"")+'</span></div>';
+
+  if(t>DB.cycle.end){
     h+='<div class="card" style="border-color:var(--amber)"><h2 style="color:var(--amber)">Cycle finished</h2>'
-      +'<div class="t" style="font-size:15px;margin-bottom:4px">This cycle ended '+fmtD(DB.cycle.end)+'.</div>'
-      +'<div class="s" style="color:var(--muted);font-size:13px">Start the next one so the daily number means something again. Your balances, loans and history all carry over.</div>'
+      +'<div class="t" style="font-size:15px;margin-bottom:4px">Ended '+fmtD(DB.cycle.end)+'.</div>'
+      +'<div class="s" style="color:var(--muted);font-size:13px">Start the next one. Balances, loans and history all stay.</div>'
       +'<div class="btnrow"><button class="btn" id="rollNow">Start the next cycle</button></div></div>';
   }
-  h+='<div class="vhead"><h1>Today</h1><span class="sub">'+fmtD(DB.cycle.start)+" – "+fmtD(DB.cycle.end)
-    +'<br>'+(DB.cycle.income?("Pay this cycle "+P(DB.cycle.income)):"")+'</span></div>';
 
   if(notSetUp()){
     h+='<div class="hero"><div class="lbl">Nothing entered yet</div>'
       +'<div class="big" style="font-size:38px">Set up first</div>'
-      +'<div class="note">The daily number is worked out from the money in your accounts. Right now they are all at zero, so there is nothing to divide.</div>'
+      +'<div class="note">The daily number comes from the money in your accounts. They are all at zero.</div>'
       +'<div class="btnrow" style="margin-top:16px"><button class="btn" id="goMoney">Enter my balances</button></div>'
       +'<div class="btnrow"><button class="btn sec" id="goSetup">Import my seed file</button></div></div>';
-    h+='<div class="card"><h2>Three things to do</h2>'
-      +'<div class="row"><div class="g"><div class="t">1. Import your seed file</div><div class="s">Setup \u00b7 Your data \u00b7 Import. Loads your loans and history.</div></div></div>'
-      +'<div class="row"><div class="g"><div class="t">2. Put in your real balances</div><div class="s">Money tab. Tap each account.</div></div></div>'
-      +'<div class="row"><div class="g"><div class="t">3. Tap your office days</div><div class="s">Setup \u00b7 Office days. Fare is held back only for those.</div></div></div></div>';
     v.innerHTML=h;
     var gm=$("#goMoney"), gs=$("#goSetup");
     if(gm) gm.addEventListener("click",function(){ VIEW="money"; render(); });
     if(gs) gs.addEventListener("click",function(){ VIEW="setup"; render(); });
     return;
   }
+
   h+='<div class="hero"><div class="lbl">You can spend</div>'
     +'<div class="big num'+(allow<0?" over":"")+'">'+P(allow)+'</div>'
-    +'<div class="note">'+(shortfall()?("You are "+P(shortfall())+" short this cycle. Loans, fare and savings come to more than you hold, so there is nothing to divide.")
-        :allow<0?("Over by "+P(-allow)+". Tomorrow shrinks.")
-        :(fare? (P(base)+" to spend + "+P(fare)+" fare, office day")
-              : (daysLeft()+" day"+(daysLeft()===1?"":"s")+" left in this cycle")))+'</div>'
+    +'<div class="note">'+(shortfall()?("Short by "+P(shortfall())+" this cycle")
+        :(allow<0?("Over by "+P(-allow)+" today"):(daysLeft()+" day"+(daysLeft()===1?"":"s")+" left")))+'</div>'
     +'<div class="bar"><i class="'+(spent>cap?"hot":"")+'" style="width:'+pct+'%"></i></div>'
-    +'<div class="split"><span class="num">'+P(spent)+' spent today</span><span class="num">'+(shortfall()?"nothing free":(P(base)+(fare?" + "+P(fare)+" fare":" \u00b7 no office day")))+'</span></div></div>';
+    +'<div class="split"><span class="num">'+P(spent)+' spent</span><span class="num">'+(shortfall()?"nothing free":(P(base)+(fare?" + "+P(fare)+" fare":" · no fare")))+'</span></div></div>';
 
   if(shortfall()){
     h+='<div class="card" style="border-color:var(--alarm)"><h2 style="color:var(--alarm)">Ways to close the '+P(shortfall())+'</h2>'
-      +'<div class="row"><div class="g"><div class="t">Log money that has landed</div><div class="s">Pay, a refund, a transfer in. Use the + button or update the balance in Money.</div></div></div>'
-      +(reserved()>0?'<button class="row" data-go2="reserved"><div class="g"><div class="t">Release some of your set-aside</div><div class="s">'+P(reserved())+' is held back from past cycles</div></div><span class="chev">\u203a</span></button>':'')
-      +(fareReserve()>0?'<button class="row" data-go2="setup"><div class="g"><div class="t">Untick office days you are not going in</div><div class="s">'+P(fareReserve())+' is reserved for fare</div></div><span class="chev">\u203a</span></button>':'')
-      +(committedTotal()>0?'<button class="row" data-go2="loans"><div class="g"><div class="t">Tick off anything already paid</div><div class="s">'+P(committedTotal())+' of loans and bills still showing unpaid</div></div><span class="chev">\u203a</span></button>':'')
-      +(goalsUnfunded()>0?'<button class="row" data-go2="setup"><div class="g"><div class="t">Pause a savings goal this cycle</div><div class="s">'+P(goalsUnfunded())+' is being held back</div></div><span class="chev">\u203a</span></button>':'')
-      +'<div class="hint">If none of those apply, the number is telling you the truth: this cycle genuinely owes more than it holds. Better to see it now than on the due date.</div></div>';
+      +'<div class="row"><div class="g"><div class="t">Log money that has landed</div><div class="s">Pay, a refund, a transfer in</div></div></div>'
+      +(reserved()>0?'<button class="row" data-go2="reserved"><div class="g"><div class="t">Release set-aside</div><div class="s">'+P(reserved())+' held back</div></div><span class="chev">›</span></button>':'')
+      +(fareReserve()>0?'<button class="row" data-go2="setup"><div class="g"><div class="t">Untick office days</div><div class="s">'+P(fareReserve())+' reserved for fare</div></div><span class="chev">›</span></button>':'')
+      +(committedTotal()>0?'<button class="row" data-go2="loans"><div class="g"><div class="t">Tick off what you paid</div><div class="s">'+P(committedTotal())+' still unpaid</div></div><span class="chev">›</span></button>':'')
+      +(goalsUnfunded()>0?'<button class="row" data-go2="setup"><div class="g"><div class="t">Pause a savings goal</div><div class="s">'+P(goalsUnfunded())+' held back</div></div><span class="chev">›</span></button>':'')
+      +'</div>';
   }
-  h+='<div class="card"><h2>Suggestions</h2><div class="chips" id="quick">';
-  DB.cats.forEach(function(c){ if(c.def) h+='<button class="chip" data-cat="'+c.id+'"><b>'+esc(c.name)+'</b><span class="num">'+P(c.def)+'</span></button>'; });
-  h+='</div><div class="hint">Tap to log at the usual amount. Use the + button for anything else.</div></div>';
 
   h+='<div class="card"><h2>Can I afford this?</h2>'
     +'<input id="affordAmt" type="number" inputmode="decimal" placeholder="Amount">'
     +'<button class="btn sec" id="affordGo" style="margin-top:8px">Check</button>'
     +'<div id="affordOut" class="hint"></div></div>';
 
-  h+='<div class="card"><h2>Recent</h2><div class="seg" id="recSeg">'
+  h+='<div class="card"><h2>Suggestions</h2><div class="chips" id="quick">';
+  DB.cats.forEach(function(c){ if(c.def) h+='<button class="chip" data-cat="'+c.id+'"><b>'+esc(c.name)+'</b><span class="num">'+P(c.def)+'</span></button>'; });
+  h+='</div><div class="hint">Tap to log at the usual amount. + for anything else.</div></div>';
+
+  h+='<div class="card"><h2>Recent transactions</h2><div class="seg" id="recSeg">'
     +sg("today","Today",recFilter)+sg("week","7 days",recFilter)+sg("month","This month",recFilter)+sg("all","All",recFilter)+'</div>';
   var list=filterTxns(recFilter);
   if(!list.length) h+='<div class="empty">Nothing logged'+(recFilter==="today"?" today":"")+'.</div>';
   else{
     var tot=0; list.forEach(function(T){ if(T.kind==="xfer"||isCredit(T.acct)) return; tot += (T.kind==="inc"? -(+T.amt) : +T.amt); });
     list.slice(0,40).forEach(function(T){
-      var C=cat(T.cat),A=acct(T.acct);
-      h+='<div class="row"><div class="g"><div class="t">'+esc(C?C.name:"Other")+'</div>'
-        +'<div class="s">'+fmtD(T.date)+' · '+esc(A?A.name:"?")+(A&&A.type==="credit"?" (credit)":"")+(T.note?" · "+esc(T.note):"")+'</div></div>'
-        +'<div class="v num">'+P(T.amt)+'</div><button class="btn sec sm" data-del="'+T.id+'" style="padding:5px 9px">×</button></div>';
+      var C=cat(T.cat), A=acct(T.acct), Xa=T.kind==="xfer"?acct(T.to):null;
+      h+='<button class="row" data-edit="'+T.id+'"><div class="g"><div class="t">'+esc(T.kind==="xfer"?"Transfer":(C?C.name:"Other"))+'</div>'
+        +'<div class="s">'+fmtD(T.date)+' · '+esc(A?A.name:"?")+(Xa?" → "+esc(Xa.name):(A&&A.type==="credit"?" (credit)":""))+(T.note?" · "+esc(T.note):"")+'</div></div>'
+        +'<div class="v num'+(T.kind==="inc"?" pos":"")+'" style="'+(T.kind==="xfer"?"color:var(--muted)":"")+'">'+(T.kind==="inc"?"+":"")+P(T.amt)+'</div><span class="chev">›</span></button>';
     });
     if(list.length>40) h+='<div class="hint">Showing 40 of '+list.length+'.</div>';
-    h+='<div class="row" style="border-top:2px solid var(--ink);border-bottom:none;padding-top:10px"><div class="g"><div class="t" style="font-weight:700">Cash total</div></div><div class="v num">'+P(tot)+'</div></div>';
+    h+='<div class="row" style="border-top:2px solid var(--ink);border-bottom:none;padding-top:10px"><div class="g"><div class="t" style="font-weight:700">Net spent</div></div><div class="v num">'+P(tot)+'</div></div>';
   }
   h+='</div>';
 
@@ -487,48 +493,61 @@ function afford(){
 /* ---------- MONEY ---------- */
 function renderMoney(){
   var v=$("#v-money"),h="";
-  h+='<div class="vhead"><h1>Money</h1><span class="sub num">'+P(onHand())+' on hand</span></div>';
-  if(reserved()>0) h+='<div class="card" style="margin-bottom:11px"><div class="row" style="padding-top:0"><div class="g"><div class="t">Spendable this cycle</div><div class="s">what the daily number divides</div></div><div class="v num">'+P(spendable())+'</div></div><div class="row"><div class="g"><div class="t">Set aside from past cycles</div><div class="s">in your accounts, not budgeted</div></div><div class="v num">'+P(reserved())+'</div></div></div>';
-  h+='<div class="btnrow" style="margin:0 0 12px"><button class="btn sec" id="xferBtn">Move money between accounts</button></div>';
+  h+='<div class="vhead"><h1>Envelopes</h1><span class="sub num">'+P(onHand())+' total</span></div>';
+
+  h+='<div class="card"><h2>Accounts</h2><div class="acctgrid">';
+  DB.accounts.filter(function(a){ return a.type==="cash"; }).forEach(function(A){
+    var neg=(+A.bal||0)<0;
+    h+='<button class="acct" data-bal="'+A.id+'"><span class="an">'+esc(A.name)+'</span>'
+      +'<span class="av num'+(neg?" neg":"")+'">'+P(+A.bal||0)+'</span></button>';
+  });
+  h+='</div>';
+  if(reserved()>0){
+    h+='<div class="row" style="margin-top:12px"><div class="g"><div class="t">Spendable</div><div class="s">what the daily number divides</div></div><div class="v num">'+P(spendable())+'</div></div>'
+      +'<button class="row" data-rsv="1"><div class="g"><div class="t">Set aside</div><div class="s">in your accounts, not budgeted</div></div><div class="v num">'+P(reserved())+'</div><span class="chev">›</span></button>';
+  }
+  h+='</div>';
 
   DB.envelopes.forEach(function(E){
-    var tot=envTotal(E), sp=envSpent(E.id);
-    h+='<div class="card"><h2>'+esc(E.name)+'<span class="num" style="font-size:16px;letter-spacing:-.02em;color:var(--ink);text-transform:none">'+P(tot)+'</span></h2>';
-    if(!(E.accts||[]).length) h+='<div class="empty">No accounts in this envelope.</div>';
+    h+='<div class="card"><h2>'+esc(E.name)+'<span class="num" style="font-size:16px;color:var(--ink);text-transform:none;letter-spacing:-.02em">'+P(envTotal(E))+'</span></h2>';
+    if(!(E.accts||[]).length) h+='<div class="empty">No accounts in here.</div>';
     (E.accts||[]).forEach(function(id){
       var A=acct(id); if(!A) return;
-      var neg=(+A.bal||0)<0;
-      h+='<button class="row" data-bal="'+A.id+'"><div class="g"><div class="t">'+esc(A.name)+(neg?' <span class="pill no">below zero</span>':'')+'</div>'
-        +'<div class="s">'+(neg?'More logged than this account holds. Fix a transaction, or set the real balance.':'tap to update balance')+'</div></div><div class="v num'+(neg?' neg':'')+'">'+P(+A.bal||0)+'</div><span class="chev">›</span></button>';
-    });
-    h+='<div class="sub-acct"><span>Spent this cycle</span><span class="num">'+P(sp)+'</span></div></div>';
-  });
-
-  var loose=DB.accounts.filter(function(A){
-    if(A.type==="credit") return false;
-    return !DB.envelopes.some(function(E){ return (E.accts||[]).indexOf(A.id)>-1; });
-  });
-  if(loose.length){
-    h+='<div class="card"><h2>Not in an envelope</h2>';
-    loose.forEach(function(A){
       h+='<button class="row" data-bal="'+A.id+'"><div class="g"><div class="t">'+esc(A.name)+'</div></div><div class="v num">'+P(+A.bal||0)+'</div><span class="chev">›</span></button>';
     });
-    h+='</div>';
-  }
+    h+='<div class="sub-acct"><span>Spent this cycle</span><span class="num">'+P(envSpent(E.id))+'</span></div></div>';
+  });
 
   var creds=DB.accounts.filter(function(a){ return a.type==="credit"; });
   if(creds.length){
-    h+='<div class="card"><h2>Credit lines</h2>';
+    h+='<div class="card"><h2>Credit</h2>';
     creds.forEach(function(A){
       var d=dayInCycle(A.dueDay);
-      h+='<button class="row" data-bal="'+A.id+'"><div class="g"><div class="t">'+esc(A.name)+' <span class="pill cr">bill</span></div>'
-        +'<div class="s">'+(d?("Due "+fmtD(d)+", this cycle"):("Due day "+(A.dueDay||"?")))+'</div></div>'
+      h+='<button class="row" data-bal="'+A.id+'"><div class="g"><div class="t">'+esc(A.name)+'</div>'
+        +'<div class="s">'+(d?("Due "+fmtD(d)):("Due day "+(A.dueDay||"?")))+'</div></div>'
         +'<div class="v num">'+P(+A.bal||0)+'</div><span class="chev">›</span></button>';
     });
     h+='<div class="hint">Charging here never touches today’s number. It goes on the bill.</div></div>';
   }
+
+  h+='<div class="card"><h2>Manage</h2>'
+    +'<div class="btnrow" style="margin-top:0"><button class="btn sec" id="xferBtn">Move money</button></div>'
+    +'<div class="btnrow"><button class="btn sec" data-acct="new">Add account</button><button class="btn sec" data-env="new">Add envelope</button></div>'
+    +'<h2 style="margin-top:18px">Edit accounts</h2>';
+  DB.accounts.forEach(function(A){
+    h+='<button class="row" data-acct="'+A.id+'"><div class="g"><div class="t">'+esc(A.name)+(A.type==="credit"?' <span class="pill cr">credit</span>':'')+'</div></div><span class="chev">›</span></button>';
+  });
+  h+='<h2 style="margin-top:18px">Edit envelopes</h2>';
+  DB.envelopes.forEach(function(E){
+    h+='<button class="row" data-env="'+E.id+'"><div class="g"><div class="t">'+esc(E.name)+'</div><div class="s">'+((E.accts||[]).length)+' account'+(((E.accts||[]).length)===1?"":"s")+'</div></div><span class="chev">›</span></button>';
+  });
+  h+='</div>';
+
   v.innerHTML=h;
   v.querySelectorAll("[data-bal]").forEach(function(b){ b.addEventListener("click",function(){ openBal(b.dataset.bal); }); });
+  v.querySelectorAll("[data-acct]").forEach(function(b){ b.addEventListener("click",function(){ openAcct(b.dataset.acct); }); });
+  v.querySelectorAll("[data-env]").forEach(function(b){ b.addEventListener("click",function(){ openEnv(b.dataset.env); }); });
+  var r=v.querySelector("[data-rsv]"); if(r) r.addEventListener("click",openReserved);
   $("#xferBtn").addEventListener("click",function(){ openTxn(null,"xfer"); });
 }
 function envSpent(eid){
@@ -574,10 +593,10 @@ function renderCal(){
       +(past ? (val!=null? Math.round(val).toLocaleString("en-US") : "–")
              : (inCycle(ds)? (blank? "–" : Math.round(per+fareFor(ds)).toLocaleString("en-US")) : "–"))+'</span></div>';
   }
-  h+='</div><div class="hint">Past days show what you actually spent, green if it was a lighter day than your average so far this cycle, red if heavier. Future days show what you can spend at today’s pace, with fare added on the days you go in.</div></div>';
+  h+='</div><div class="hint">Green = lighter than your average. Red = heavier. Future days show today’s pace plus fare on office days.</div></div>';
 
   h+='<div class="card"><h2>Pace, week by week</h2>'
-    +'<div class="hint" style="margin-top:0;margin-bottom:10px">Your cycle ('+fmtD(DB.cycle.start)+' to '+fmtD(DB.cycle.end)+') in seven-day blocks. Weeks that are over show only what you spent, because the allowance back then was not the one you have now. The current and later weeks show spent against what is still left.</div>';
+    +'<div class="hint" style="margin-top:0;margin-bottom:10px">Finished weeks show spend only. Current and later weeks show spend against what is left.</div>';
   var s=DB.cycle.start,wi=1;
   while(s<=DB.cycle.end){
     var e=addD(s,6); if(e>DB.cycle.end) e=DB.cycle.end;
@@ -713,21 +732,21 @@ function renderSetup(){
     +fld("Starts","cs","date",DB.cycle.start)
     +fld("Ends","ce","date",DB.cycle.end)
     +fld("Pay for this cycle","cin","number",DB.cycle.income||"")
-    +'<div class="hint" style="margin-top:-4px;margin-bottom:12px">Shown on Today as a reminder. What the daily number actually uses is your account balances, since that is the money you really have.</div>'
+    +'<div class="hint" style="margin-top:-4px;margin-bottom:12px">A reminder only. The daily number uses your account balances.</div>'
     +sel("Repeat","crule",[["semimonthly","15th and end of month"],["monthly","Monthly"],["fortnightly","Every two weeks"],["custom","Custom, I set it myself"]],DB.settings.rule)
-    +'<div class="hint" style="margin-top:0">Changes here save themselves. Nothing on this screen ever deletes anything.</div>'
+    +'<div class="hint" style="margin-top:0">Saves as you type. Nothing here deletes anything.</div>'
     +'<div class="btnrow"><button class="btn sec" id="newCycle">Payday \u2014 move to next cycle</button></div>'
-    +'<div class="hint">Tap that on the 15th and the 30th. It rolls the dates forward, picks up whichever loans fall in the new window, and unlocks your savings to fund again. Your balances, transactions and loan history all stay exactly where they are.</div></div>';
+    +'<div class="hint">Tap on payday. Rolls the dates, picks up the loans due, unlocks savings. Balances and history stay.</div></div>';
 
   h+='<div class="card"><h2>Where the money goes</h2>'
     +erow("Money on hand",onHand(),"money","across your accounts")
-    +erow("Set aside from past cycles",-reserved(),"reserved","sitting in your accounts, kept out of the budget")
+    +erow("Set aside from past cycles",-reserved(),"reserved","in your accounts, out of the budget")
     +erow("Loans and bills this cycle",-committedTotal(),"loans",commitments().length+" items")
     +erow("Fare set aside",-fareReserve(),"fare",officeDaysLeft()+" office days left at "+P(DB.settings.farePerDay)+", nothing on other days")
     +erow("Savings not yet funded",-goalsUnfunded(),"goals",DB.goals.filter(goalDue).length+" of "+DB.goals.length+" land in this window")
     +erow("Manual adjustment",(+DB.cycle.adjust||0),"adjust","anything else, plus or minus")
     +'<div class="row" style="border-top:2px solid var(--ink);border-bottom:none;padding-top:11px"><div class="g"><div class="t" style="font-weight:700">Free to spend</div><div class="s">over '+daysLeft()+' days = '+P(perDayBase())+' a day</div></div><div class="v num" style="font-size:18px">'+P(freeToSpend())+'</div></div>'
-    +'<div class="hint">Tap any line to change what feeds it.</div></div>';
+    +'<div class="hint">Tap a line to change it.</div></div>';
 
   h+='<div class="card"><h2>Envelopes and accounts</h2>';
   DB.envelopes.forEach(function(E){
@@ -751,9 +770,9 @@ function renderSetup(){
       +'<div class="v num">'+P(+A.bal||0)+'</div><span class="chev">›</span></button>';
   });
   h+='<div class="btnrow"><button class="btn sec" data-acct="new">Add account</button></div>'
-    +'<div class="hint">An envelope can hold as many accounts as you like. You log against the account, the envelope shows the total.</div></div>';
+    +'<div class="hint">Envelopes and accounts now live in the Envelopes tab.</div></div>';
 
-  h+='<div class="card"><h2>Suggestion amounts</h2>';
+  h+='<div class="card"><h2>Quick amounts</h2>';
   DB.cats.forEach(function(C){
     h+='<button class="row" data-cat="'+C.id+'"><div class="g"><div class="t">'+esc(C.name)+'</div><div class="s">'+esc((env(C.env)||{}).name||"no envelope")+'</div></div>'
       +'<div class="v num">'+(C.def?P(C.def):"hidden")+'</div><span class="chev">›</span></button>';
@@ -785,7 +804,7 @@ function renderSetup(){
 
   h+='<div class="card"><h2>Office days</h2>'
     +fld("Fare per office day","fare","number",DB.settings.farePerDay||0)
-    +'<div class="hint" style="margin:0 0 10px">Tap the days you go in. Fare is held back for those days only, then added to your number on the day itself. Days you stay home carry no fare at all.</div>'
+    +'<div class="hint" style="margin:0 0 10px">Tap the days you go in. Fare is held back for those only.</div>'
     +'<div class="cal" id="officeCal">'+officeGrid()+'</div></div>';
 
   h+='<div class="card"><h2>Look</h2><div class="btnrow" style="margin-top:0" id="accents">';
@@ -793,7 +812,7 @@ function renderSetup(){
   h+='</div><div class="btnrow"><button class="btn sec" id="themeBtn">Theme: '+(DB.settings.theme||"auto")+'</button></div></div>';
 
   h+='<div class="card"><h2>Your data</h2>'
-    +'<div class="hint" style="margin-top:0;margin-bottom:12px">Everything lives in this browser only. Nothing is sent anywhere. Export before any big change, and keep the backup somewhere you control. Never put card numbers, PINs or passwords in here.</div>'
+    +'<div class="hint" style="margin-top:0;margin-bottom:12px">Stored in this browser only. Export before big changes. Never put card numbers, PINs or passwords in here.</div>'
     +'<div class="btnrow" style="margin-top:0"><button class="btn sec" id="expBtn">Export backup</button><button class="btn sec" id="impBtn">Import</button></div>'
     +'<input type="file" id="impFile" accept="application/json,.json" style="display:none">'
     +'<div class="btnrow"><button class="btn dan" id="wipeBtn">Erase everything</button></div>'
@@ -982,39 +1001,111 @@ function openTxn(id,preKind){
   var T = id ? DB.txns.filter(function(x){ return x.id===id; })[0] : null;
   var cats=DB.cats.map(function(c){ return [c.id,c.name]; });
   var accts=DB.accounts.map(function(a){ return [a.id,a.name+(a.type==="credit"?" (credit)":"")]; });
-  var body=sel("Type","txKind",[["exp","Money out"],["inc","Money in"],["xfer","Transfer between accounts"]],T?(T.kind||"exp"):(preKind||"exp"))
+  var kinds=[["exp","Money out"],["inc","Money in"],["xfer","Transfer"]];
+  if(!T) kinds.push(["borrow","Borrowed money"]);
+  var body=sel("Type","txKind",kinds,T?(T.kind||"exp"):(preKind||"exp"))
     +fld("Amount","txAmt","number",T?T.amt:"")
     +'<div id="txCatWrap">'+sel("What","txCat",cats,T?T.cat:DB.cats[0].id)+'</div>'
     +sel("From","txAcct",accts,T?T.acct:DB.accounts[0].id)
-    +'<div id="txToWrap">'+sel("To","txTo",accts,(T&&T.to)?T.to:(DB.accounts[1]||DB.accounts[0]).id)+'</div>' 
+    +'<div id="txToWrap">'+sel("To","txTo",accts,(T&&T.to)?T.to:(DB.accounts[1]||DB.accounts[0]).id)+'</div>'
+    +'<div id="txBorrow">'
+      +fld("Lender","bwLen","text","")
+      +sel("How you repay it","bwMode",[["one","One payment, with a fee"],["inst","Monthly instalments"]],"one")
+      +'<div id="bwOne">'+fld("Total you must repay","bwTotal","number","")+fld("Due date","bwDue","date",todayISO())+'</div>'
+      +'<div id="bwInst"><div class="two">'+fld("How many","bwN","number",6)+fld("Each","bwEach","number","")+'</div>'
+        +fld("Last one (if different)","bwLast","number","")+fld("First due","bwFirst","date",todayISO())
+        +sel("How often","bwFreq",[["monthly","Monthly"],["semi","15th and end of month"]],"monthly")+'</div>'
+      +'<div id="bwFee" class="hint"></div>'
+    +'</div>'
     +fld("Date","txDate","date",T?T.date:todayISO())
     +fld("Note (optional)","txNote","text",T?T.note:"")
     +(T?'<div class="btnrow"><button class="btn dan" id="txDel">Delete this</button></div>':'');
-  openSheet(T?"Edit entry":(preKind==="xfer"?"Move money":"Log spending"),body,function(){
+
+  openSheet(T?"Edit entry":(preKind==="xfer"?"Move money":"Add"),body,function(){
     var a=+$("#txAmt").value; if(!a){ toast("Enter an amount"); return false; }
+    var k=T?$("#txKind").value:$("#txKind").value;
+
+    if(!T && k==="borrow"){
+      var lender=$("#bwLen").value||"Lender";
+      var mode=$("#bwMode").value;
+      var rows=[];
+      if(mode==="one"){
+        var tot=+$("#bwTotal").value||a;
+        rows.push({id:uid(),lender:lender,loan:"One payment",amt:tot,due:$("#bwDue").value,paid:false});
+      } else {
+        var n=+$("#bwN").value||1, each=+$("#bwEach").value||0, last=+$("#bwLast").value||0;
+        if(!each){ toast("Enter the amount of each payment"); return false; }
+        var d=parse($("#bwFirst").value), freq=$("#bwFreq").value;
+        for(var q=0;q<n;q++){
+          rows.push({id:uid(),lender:lender,loan:"Instalment",amt:(q===n-1&&last)?last:each,due:iso(d),paid:false});
+          if(freq==="monthly"){
+            var day=d.getDate(), y=d.getFullYear(), m=d.getMonth()+1;
+            d=new Date(y,m,Math.min(day,lastDay(y,m)));
+          } else {
+            var y2=d.getFullYear(), m2=d.getMonth();
+            d = d.getDate()>=15 ? new Date(y2,m2+1,15) : new Date(y2,m2,lastDay(y2,m2));
+          }
+        }
+      }
+      rows.forEach(function(r){ DB.loans.push(r); });
+      addTxn({kind:"inc",amt:a,cat:$("#txCat").value,acct:$("#txAcct").value,date:$("#txDate").value,
+              note:($("#txNote").value||("Borrowed from "+lender))});
+      var owed=0; rows.forEach(function(r){ owed+=+r.amt; });
+      toast("Borrowed "+P(a)+", repaying "+P(owed)+" over "+rows.length+" payment"+(rows.length===1?"":"s"));
+      return true;
+    }
+
     if(T){
       applyTxn(T,-1);
-      T.kind=$("#txKind").value; T.amt=a; T.cat=$("#txCat").value; T.acct=$("#txAcct").value;
+      T.kind=k; T.amt=a; T.cat=$("#txCat").value; T.acct=$("#txAcct").value;
       T.to=$("#txTo").value; T.date=$("#txDate").value; T.note=$("#txNote").value;
       if(T.kind==="xfer" && T.to===T.acct){ toast("Pick two different accounts"); applyTxn(T,1); return false; }
       applyTxn(T,1);
       toast("Updated");
     } else {
-      var k=$("#txKind").value;
       if(k==="xfer" && $("#txTo").value===$("#txAcct").value){ toast("Pick two different accounts"); return false; }
       addTxn({kind:k,amt:a,cat:$("#txCat").value,acct:$("#txAcct").value,to:$("#txTo").value,date:$("#txDate").value,note:$("#txNote").value});
     }
     return true;
   });
-  function syncKind(){
-    var k=$("#txKind").value;
-    $("#txCatWrap").style.display = k==="xfer" ? "none" : "";
-    $("#txToWrap").style.display  = k==="xfer" ? "" : "none";
-    var lbl=$("#txAcct").parentNode.querySelector(".k");
-    if(lbl) lbl.textContent = k==="xfer" ? "From" : (k==="inc" ? "Into" : "Paid from");
+
+  function feeLine(){
+    var got=+$("#txAmt").value||0, owed=0;
+    if($("#bwMode").value==="one") owed=+$("#bwTotal").value||0;
+    else {
+      var n=+$("#bwN").value||0, each=+$("#bwEach").value||0, last=+$("#bwLast").value||0;
+      owed = n>0 ? each*(n-1)+(last||each) : 0;
+    }
+    var el=$("#bwFee");
+    if(got>0 && owed>0){
+      var fee=owed-got, pc=got? (fee/got*100):0;
+      el.innerHTML = fee>0
+        ? 'You get <b>'+P(got)+'</b>, you repay <b>'+P(owed)+'</b>. That is <b style="color:var(--alarm)">'+P(fee)+'</b> in fees, '+pc.toFixed(1)+'% of what you borrowed.'
+        : 'You get '+P(got)+' and repay '+P(owed)+'.';
+    } else el.textContent="Fill in both and this will show the fee.";
   }
-  $("#txKind").addEventListener("change",syncKind); syncKind();
-  if(T){ var d=$("#txDel"); if(d) d.addEventListener("click",function(){ closeSheet(); delTxn(T.id); }); }
+  function syncKind(){
+    var k=$("#txKind").value, bw=(k==="borrow");
+    $("#txCatWrap").style.display = (k==="xfer") ? "none" : "";
+    $("#txToWrap").style.display  = (k==="xfer") ? "" : "none";
+    $("#txBorrow").style.display  = bw ? "" : "none";
+    if(bw){
+      var one=$("#bwMode").value==="one";
+      $("#bwOne").style.display  = one?"":"none";
+      $("#bwInst").style.display = one?"none":"";
+      feeLine();
+    }
+    var lbl=$("#txAcct").parentNode.querySelector(".k");
+    if(lbl) lbl.textContent = (k==="xfer") ? "From" : ((k==="inc"||bw) ? "Into" : "Paid from");
+    var al=$("#txAmt").parentNode.querySelector(".k");
+    if(al) al.textContent = bw ? "Amount you received" : "Amount";
+  }
+  $("#txKind").addEventListener("change",syncKind);
+  ["bwMode","bwTotal","bwN","bwEach","bwLast","txAmt"].forEach(function(x){
+    var n=$("#"+x); if(n) n.addEventListener("change",syncKind);
+  });
+  syncKind();
+  if(T){ var d2=$("#txDel"); if(d2) d2.addEventListener("click",function(){ closeSheet(); delTxn(T.id); }); }
 }
 function openAcct(id){
   var A = id==="new" ? {id:uid(),name:"",type:"cash",bal:0,stmtDay:25,dueDay:15} : acct(id);

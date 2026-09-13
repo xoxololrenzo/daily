@@ -164,6 +164,7 @@ button.day{font:inherit;cursor:pointer}
 body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 .sheet h3{margin:0 0 14px;font-size:17px;font-weight:700}
 .grabzone{padding:2px 0 11px;margin:-6px 0 0;cursor:grab;touch-action:none}
+.sheet .stick{position:sticky;bottom:calc(-1px - var(--safe-b));background:var(--surface);padding:10px 0 calc(4px + var(--safe-b));margin-top:12px;z-index:3;box-shadow:0 -14px 14px -10px rgba(0,0,0,.28)}
 .grab{width:42px;height:5px;border-radius:3px;background:var(--rule-2);margin:0 auto}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 
@@ -201,7 +202,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 <script>
 "use strict";
 /* ===== Daily v1.1 — everything stays in this browser. No personal data in this file. ===== */
-var VER="1.19", KEY="daily.v1";
+var VER="1.21", KEY="daily.v1";
 var $=function(s,r){ return (r||document).querySelector(s); };
 var el=function(t){ return document.createElement(t); };
 var ACCENTS=["#1D6FA3","#1F6B4F","#8A3E9E","#C2740A","#A8341E","#2B6DB0","#0E7C86","#B03A6B"];
@@ -209,7 +210,7 @@ var ACCENTS=["#1D6FA3","#1F6B4F","#8A3E9E","#C2740A","#A8341E","#2B6DB0","#0E7C8
 function seedDB(){
   return {
     v:2, ver:VER,
-    settings:{ cur:"₱", rule:"semimonthly", farePerDay:150, theme:"auto", accent:"#1D6FA3" },
+    settings:{ cur:"₱", rule:"semimonthly", farePerDay:150, officeDow:[], theme:"auto", accent:"#1D6FA3" },
     cycle: defaultCycle(todayISO()),
     accounts:[
       {id:"cash",  name:"Cash",         type:"cash",   bal:0},
@@ -261,7 +262,7 @@ function nextCycle(c,rule){
   var s=addD(c.end,1),d=parse(s),y=d.getFullYear(),m=d.getMonth();
   if(rule==="fortnightly") return {start:s,end:addD(s,13),income:c.income,adjust:0};
   if(rule==="monthly")     return {start:s,end:iso(new Date(y,m+1,d.getDate()-1)),income:c.income,adjust:0};
-  var e=d.getDate()>=15 ? iso(new Date(y,m+1,14)) : iso(new Date(y,m,lastDay(y,m)-1));
+  var e=(d.getDate()<lastDay(y,m)) ? iso(new Date(y,m,lastDay(y,m)-1)) : iso(new Date(y,m+1,14));
   return {start:s,end:e,income:c.income,adjust:0};
 }
 
@@ -298,15 +299,43 @@ function envTotal(E){ var s=0; (E.accts||[]).forEach(function(id){ var A=acct(id
 /* ---- engine ---- */
 function onHand(){ var s=0; DB.accounts.forEach(function(a){ if(a.type==="cash") s+=(+a.bal||0); }); return s; }
 function inCycle(d){ return d>=DB.cycle.start && d<=DB.cycle.end; }
-function dayInCycle(day){
+function dayInCycle(day){ return dayInWindow(day,DB.cycle.start,DB.cycle.end); }
+function dayInWindow(day,a,b){
   if(!day) return null;
-  var d=parse(DB.cycle.start), e=parse(DB.cycle.end);
-  while(d<=e){
+  var d=parse(a), e=parse(b), guard=0;
+  while(d<=e && guard++<400){
     var eff=Math.min(+day, lastDay(d.getFullYear(),d.getMonth()));
     if(d.getDate()===eff) return iso(d);
     d.setDate(d.getDate()+1);
   }
   return null;
+}
+function commitmentsIn(a,b,noCredit){
+  var out=[];
+  DB.loans.forEach(function(L){ if(!L.paid && L.due>=a && L.due<=b) out.push({id:L.id,kind:"loan",name:(L.lender?L.lender+" ":"")+L.loan,amt:+L.amt,date:L.due}); });
+  DB.fixed.forEach(function(F){ var d=dayInWindow(F.day,a,b); if(d) out.push({id:F.id,kind:"fixed",name:F.name,amt:+F.amt,date:d}); });
+  if(!noCredit) DB.accounts.forEach(function(A){ if(A.type==="credit"&&(+A.bal||0)>0){ var d=dayInWindow(A.dueDay,a,b); if(d) out.push({id:A.id,kind:"credit",name:A.name+" bill",amt:+A.bal,date:d}); } });
+  out.sort(function(x,y){ return x.date<y.date?-1:1; });
+  return out;
+}
+function cycleAt(n){
+  var c={start:DB.cycle.start,end:DB.cycle.end};
+  for(var i=0;i<n;i++) c=nextCycle(c,DB.settings.rule);
+  return {start:c.start,end:c.end};
+}
+function typicalDaily(){
+  // a trimmed average: the biggest 10% of days are loan payments and one-offs,
+  // and those are already counted separately, so they must not inflate living cost
+  var t=todayISO(), d=addD(t,-60), v=[], guard=0;
+  while(d<t && guard++<70){
+    if(DB.hist[d]!=null || txnsOn(d).n>0) v.push(spentOn(d));
+    d=addD(d,1);
+  }
+  if(!v.length) return 0;
+  v.sort(function(a,b){ return a-b; });
+  var keep=Math.max(1, v.length-Math.round(v.length*0.10));
+  var s=0; for(var i=0;i<keep;i++) s+=v[i];
+  return s/keep;
 }
 function commitments(){
   var out=[];
@@ -336,7 +365,20 @@ function whenLabel(G){
 }
 function goalsUnfunded(){ var s=0; DB.goals.forEach(function(g){ if(goalDue(g) && g.fundedCycle!==DB.cycle.start) s+=(+g.perCycle||0); }); return s; }
 function isCredit(id){ var A=acct(id); return !!(A&&A.type==="credit"); }
-function txnsOn(d){ var s=0,n=0; DB.txns.forEach(function(T){ if(T.date===d){ if(T.kind==="xfer") return; n++; if(!isCredit(T.acct) && T.kind!=="inc") s+=+T.amt; } }); return {sum:s,n:n}; }
+function txnsOn(d){
+  var s=0,n=0;
+  DB.txns.forEach(function(T){
+    if(T.date!==d) return;
+    if(T.kind==="xfer"){
+      var f=+T.fee||0;
+      if(f>0 && !isCredit(T.acct)){ n++; s+=f; }
+      return;
+    }
+    n++;
+    if(!isCredit(T.acct) && T.kind!=="inc") s+=+T.amt;
+  });
+  return {sum:s,n:n};
+}
 function spentOn(d){
   var t=txnsOn(d);
   if(t.n) return t.sum;                       // logged in the app wins
@@ -351,6 +393,17 @@ function spentRange(a,b){
 function isOfficeDay(d){ return DB.office.indexOf(d)>-1; }
 function fareFor(d){ return isOfficeDay(d) ? (+DB.settings.farePerDay||0) : 0; }
 function officeDaysIn(a,b){ var n=0; DB.office.forEach(function(d){ if(d>=a&&d<=b) n++; }); return n; }
+function officeDow(){ return DB.settings.officeDow||[]; }
+function officeDaysPlanned(a,b){
+  var dow=officeDow(), n=0, d=parse(a), e=parse(b), guard=0;
+  while(d<=e && guard++<400){
+    var s=iso(d);
+    if(DB.office.indexOf(s)>-1) n++;
+    else if(dow.indexOf(d.getDay())>-1) n++;
+    d.setDate(d.getDate()+1);
+  }
+  return n;
+}
 function daysLeft(){ var t=todayISO(); if(t>DB.cycle.end) return 1; if(t<DB.cycle.start) return between(DB.cycle.start,DB.cycle.end)+1; return between(t,DB.cycle.end)+1; }
 function notSetUp(){
   var anyBal=false;
@@ -646,10 +699,26 @@ function renderLoans(){
   });
   h+='<div class="row" style="border-top:2px solid var(--ink);border-bottom:none;padding-top:10px"><div class="g"><div class="t" style="font-weight:700">Total</div></div><div class="v num">'+P(committedTotal())+'</div></div></div>';
 
+  h+=renderPlan();
+
   h+='<div class="card"><h2>Schedule</h2><div class="seg" id="loanSeg">'
-    +sg2("due","Upcoming")+sg2("paid","Paid")+sg2("lender","By lender")+'</div>';
+    +sg2("due","Upcoming")+sg2("month","By month")+sg2("lender","By lender")+sg2("paid","Paid")+'</div>';
   var rows=DB.loans.slice().sort(function(a,b){ return a.due<b.due?-1:1; });
   if(!rows.length) h+='<div class="empty">No schedule yet.<br>Import your seed file in Setup, or add rows there.</div>';
+  else if(loanFilter==="month"){
+    var bm={};
+    rows.forEach(function(L){ if(L.paid) return; var k=L.due.slice(0,7); bm[k]=bm[k]||{n:0,s:0}; bm[k].n++; bm[k].s+=+L.amt; });
+    var mk=Object.keys(bm).sort();
+    if(!mk.length) h+='<div class="empty">Everything is paid.</div>';
+    var peak=0; mk.forEach(function(k){ if(bm[k].s>peak) peak=bm[k].s; });
+    mk.forEach(function(k){
+      var w = peak? Math.round(bm[k].s/peak*100) : 0;
+      h+='<div class="row"><div class="g"><div class="t">'+MON[+k.slice(5,7)-1]+' '+k.slice(0,4)+'</div>'
+        +'<div class="s">'+bm[k].n+' payment'+(bm[k].n===1?"":"s")+'</div>'
+        +'<div class="bar" style="margin-top:6px"><i style="width:'+w+'%"></i></div></div>'
+        +'<div class="v num">'+P(bm[k].s)+'</div></div>';
+    });
+  }
   else if(loanFilter==="lender"){
     var by={};
     rows.forEach(function(L){ if(L.paid) return; var k=(L.lender||"?")+" · "+L.loan; by[k]=by[k]||{n:0,s:0,last:""}; by[k].n++; by[k].s+=+L.amt; if(L.due>by[k].last) by[k].last=L.due; });
@@ -669,6 +738,7 @@ function renderLoans(){
   h+='<div class="btnrow"><button class="btn sec" id="addLoan">Add a loan</button><button class="btn sec" id="addPay">One payment</button></div></div>';
 
   v.innerHTML=h;
+  wirePlan(v);
   $("#loanSeg").addEventListener("click",function(e){ var b=e.target.closest("button"); if(b){ loanFilter=b.dataset.k; renderLoans(); } });
   v.querySelectorAll("[data-toggle]").forEach(function(b){
     b.addEventListener("click",function(){
@@ -679,6 +749,96 @@ function renderLoans(){
   });
   $("#addLoan").addEventListener("click",openLoanPlan);
   $("#addPay").addEventListener("click",function(){ openLoan("new"); });
+}
+var planOff=1;
+function planFor(n){
+  var c=cycleAt(n);
+  var days=between(c.start,c.end)+1;
+  var items=commitmentsIn(c.start,c.end,true);
+  var due=0; items.forEach(function(x){ due+=x.amt; });
+  var sav=0; DB.goals.forEach(function(g){ var d=goalDay(g); if(!d || dayInWindow(d,c.start,c.end)) sav+=(+g.perCycle||0); });
+  var off=(DB.planOff&&DB.planOff[c.start]!=null) ? +DB.planOff[c.start] : officeDaysPlanned(c.start,c.end);
+  var offSet=!!(DB.planOff&&DB.planOff[c.start]!=null);
+  var fare=off*(+DB.settings.farePerDay||0);
+  var liv=Math.round(typicalDaily()*days);
+  var pay=(DB.plan&&DB.plan[c.start]!=null)?+DB.plan[c.start]:(+DB.cycle.income||0);
+  return {start:c.start,end:c.end,days:days,items:items,due:due,sav:sav,fare:fare,off:off,offSet:offSet,
+          liv:liv,pay:pay,left:pay-due-sav-fare-liv};
+}
+function prow(k,v,sub,cls){
+  return '<div class="row"><div class="g"><div class="t">'+k+'</div>'+(sub?'<div class="s">'+sub+'</div>':'')
+    +'</div><div class="v num"'+(cls?' style="color:var('+cls+')"':'')+'>'+P(v)+'</div></div>';
+}
+function renderPlan(){
+  var p=planFor(planOff), h="";
+  h+='<div class="card"><h2>Next cutoff</h2>'
+    +'<div class="seg" id="planSeg" style="justify-content:space-between">'
+    +'<button data-p="-1"'+(planOff<=1?" disabled":"")+'>‹</button>'
+    +'<button data-p="0" aria-pressed="true">'+fmtD(p.start)+' – '+fmtD(p.end)+'</button>'
+    +'<button data-p="1">›</button></div>';
+
+  h+=prow('Pay you expect',p.pay,'tap to change','--good');
+  h+=prow('Loans and bills due',-p.due,p.items.length+' item'+(p.items.length===1?"":"s"));
+  h+=prow('Savings',-p.sav,'goals landing in that window');
+  h+='<button class="row" id="planFare"><div class="g"><div class="t">Fare</div><div class="s">'
+    +(p.off? (p.off+' office day'+(p.off===1?'':'s')+' at '+P(DB.settings.farePerDay)+(p.offSet?', you set this':(officeDow().length?', from your usual days':''))) : 'no office days yet \u2014 tap to set them')
+    +'</div></div><div class="v num neg">'+P(-p.fare)+'</div><span class="chev">\u203a</span></button>';
+  h+=prow('Living at your usual pace',-p.liv,P(typicalDaily())+' a day × '+p.days+' days, loan payments excluded');
+
+  var ok=p.left>=0;
+  h+='<div class="row" style="border-top:2px solid var(--ink);border-bottom:none;padding-top:11px">'
+    +'<div class="g"><div class="t" style="font-weight:700">'+(ok?'Left over':'Short by')+'</div>'
+    +'<div class="s">'+(ok? (P(p.left/p.days)+' a day spare') : 'this cutoff does not cover itself')+'</div></div>'
+    +'<div class="v num" style="font-size:18px;color:var('+(ok?'--good':'--alarm')+')">'+P(Math.abs(p.left))+'</div></div>';
+
+  if(!ok){
+    h+='<div class="hint">To break even without borrowing you need to find '+P(-p.left)+' — that is '
+      +P(-p.left/p.days)+' a day off your usual pace, or one payment moved. Borrowing it closes this cutoff and opens a hole in the next one, plus the fee.</div>';
+  }
+
+  if(p.items.length){
+    h+='<div style="font-size:12px;font-weight:700;color:var(--muted);margin:16px 0 2px;text-transform:uppercase;letter-spacing:.04em">What is due</div>';
+    p.items.forEach(function(x){
+      h+='<div class="row"><div class="g"><div class="t">'+esc(x.name)+'</div><div class="s">'+fmtD(x.date)+'</div></div><div class="v num">'+P(x.amt)+'</div></div>';
+    });
+  }
+  h+='<div class="hint">Living and fare are estimates from how you actually spend. Everything else is real, from your loan schedule and fixed bills. Credit-card balances are left out because they depend on what you spend between now and then.</div>';
+  return h+'</div>';
+}
+function wirePlan(v){
+  var pf=$("#planFare"); if(pf) pf.addEventListener("click",openPlanOffice);
+  var seg=$("#planSeg"); if(!seg) return;
+  seg.addEventListener("click",function(e){
+    var b=e.target.closest("button"); if(!b) return;
+    var d=+b.dataset.p;
+    if(d===0){ openPlanPay(); return; }
+    planOff=Math.max(1,Math.min(12,planOff+d));
+    renderLoans();
+  });
+}
+function openPlanOffice(){
+  var c=cycleAt(planOff);
+  if(!DB.planOff) DB.planOff={};
+  var auto=officeDaysPlanned(c.start,c.end);
+  var cur=(DB.planOff[c.start]!=null)?DB.planOff[c.start]:auto;
+  openSheet("Office days, "+fmtD(c.start)+" – "+fmtD(c.end),
+    fld("How many office days","poff","number",cur)
+    +'<div class="hint">Your usual days ('+(officeDow().length?officeDow().map(function(x){return DAYS[x];}).join(", "):"none set yet")
+    +') work out to '+auto+' in this window. Change the number for a cutoff you know is different — a holiday week, extra RTO days, a leave.</div>'
+    +'<div class="btnrow"><button class="btn sec" id="poffAuto">Go back to my usual days</button></div>',
+    function(){ DB.planOff[c.start]=Math.max(0,+$("#poff").value||0); return true; });
+  $("#poffAuto").addEventListener("click",function(){
+    delete DB.planOff[c.start]; closeSheet(); save(); renderLoans(); toast("Back to your usual days");
+  });
+}
+function openPlanPay(){
+  var c=cycleAt(planOff);
+  if(!DB.plan) DB.plan={};
+  var cur=(DB.plan[c.start]!=null)?DB.plan[c.start]:(+DB.cycle.income||0);
+  openSheet("Pay for "+fmtD(c.start)+" – "+fmtD(c.end),
+    fld("Amount you expect","ppay","number",cur)
+    +'<div class="hint">Leave it as your usual pay, or change it for a cutoff you know will be different — a 13th month, a deduction, an unpaid day.</div>',
+    function(){ DB.plan[c.start]=+$("#ppay").value||0; return true; });
 }
 function sg2(k,label){ return '<button data-k="'+k+'" aria-pressed="'+(loanFilter===k)+'">'+label+'</button>'; }
 function openLoanPlan(){
@@ -807,7 +967,12 @@ function renderSetup(){
 
   h+='<div class="card"><h2>Office days</h2>'
     +fld("Fare per office day","fare","number",DB.settings.farePerDay||0)
-    +'<div class="hint" style="margin:0 0 10px">Tap the days you go in. Fare is held back for those only.</div>'
+    +'<div style="font-size:12px;font-weight:700;color:var(--muted);margin:14px 0 6px;text-transform:uppercase;letter-spacing:.04em">Your usual days</div>'
+    +'<div class="seg" id="dowSeg">'+DAYS.map(function(n,i){ return '<button data-dow="'+i+'" aria-pressed="'+(officeDow().indexOf(i)>-1)+'">'+n.slice(0,3)+'</button>'; }).join("")+'</div>'
+    +'<div class="hint" style="margin-top:0">Used to work out fare for future cutoffs in the planner. It does not tick anything below by itself.</div>'
+    +'<div class="btnrow"><button class="btn sec" id="dowFill">Tick these on this cycle</button></div>'
+    +'<div style="font-size:12px;font-weight:700;color:var(--muted);margin:16px 0 6px;text-transform:uppercase;letter-spacing:.04em">This cycle</div>'
+    +'<div class="hint" style="margin:0 0 10px">Tap the days you actually go in. Fare is held back for those only.</div>'
     +'<div class="cal" id="officeCal">'+officeGrid()+'</div></div>';
 
   h+='<div class="card"><h2>Look</h2><div class="btnrow" style="margin-top:0" id="accents">';
@@ -851,6 +1016,23 @@ function wireSetup(v){
   });
   $("#newCycle").addEventListener("click",rollCycle);
   $("#fare").addEventListener("change",function(){ DB.settings.farePerDay=+this.value||0; save(); });
+  $("#dowSeg").addEventListener("click",function(e){
+    var b=e.target.closest("button"); if(!b) return;
+    var i=+b.dataset.dow, a=officeDow().slice(), k=a.indexOf(i);
+    if(k>-1) a.splice(k,1); else { a.push(i); a.sort(); }
+    DB.settings.officeDow=a; save(); renderSetup();
+  });
+  $("#dowFill").addEventListener("click",function(){
+    var dow=officeDow();
+    if(!dow.length){ toast("Pick your usual days first"); return; }
+    var d=parse(DB.cycle.start), e=parse(DB.cycle.end), n=0, guard=0;
+    while(d<=e && guard++<400){
+      var s=iso(d);
+      if(dow.indexOf(d.getDay())>-1 && DB.office.indexOf(s)===-1){ DB.office.push(s); n++; }
+      d.setDate(d.getDate()+1);
+    }
+    save(); renderSetup(); toast(n+" day"+(n===1?"":"s")+" ticked");
+  });
   $("#officeCal").addEventListener("click",function(e){
     var b=e.target.closest("[data-off]"); if(!b) return;
     var ds=b.dataset.off,i=DB.office.indexOf(ds);
@@ -899,11 +1081,28 @@ function biggestCash(){
   DB.accounts.forEach(function(a){ if(a.type!=="cash") return; if(!best||(+a.bal||0)>(+best.bal||0)) best=a; });
   return best;
 }
+var rollStart=null;
 function rollCycle(){
+  var nc=nextCycle(DB.cycle,DB.settings.rule);
+  var t=todayISO(), late = t>nc.start && t<=nc.end;
+  var body=fld("Pay landed on","rcDate","date",(t<nc.start||t>nc.end)?nc.start:t)
+    +'<div class="hint" style="margin-top:0">'
+    +(late
+      ? 'Payroll was due '+fmtD(nc.start)+' and it is already '+fmtD(t)+'. Start the cycle on the day the money actually landed — the days before it stay in the cycle that just ended, where you were still living on the old pay.'
+      : 'The new cycle starts here and still ends '+fmtD(nc.end)+'.')
+    +'</div>'
+    +'<div class="hint">Ends '+fmtD(nc.end)+' either way. Balances, loans and history stay. Savings go back to unfunded so you can fund them again.</div>';
+  openSheet("Payday",body,function(){
+    rollStart = $("#rcDate").value || nc.start;
+    setTimeout(doRollFlow,280);
+    return true;
+  });
+}
+function doRollFlow(){
   var any=false;
   DB.accounts.forEach(function(x){ if(x.type==="cash" && Math.round(+x.bal||0)>0) any=true; });
   if(any) return openSweep();
-  doRoll();
+  doRoll(true);
 }
 function openSweep(){
   var cash=DB.accounts.filter(function(x){ return x.type==="cash" && Math.round(+x.bal||0)>0; });
@@ -947,12 +1146,13 @@ function openSweep(){
 }
 
 function doRoll(quiet){
-  if(!quiet && !confirm("Start the next cycle?\n\nBalances, loans and history stay. Savings goals go back to unfunded so you can fund them again this payday.")) return;
-  DB.cycle=nextCycle(DB.cycle,DB.settings.rule);
-  DB.cycle.adjust=0;
+  var c=nextCycle(DB.cycle,DB.settings.rule);
+  if(rollStart && rollStart>=c.start && rollStart<c.end) c.start=rollStart;
+  rollStart=null;
+  DB.cycle=c; DB.cycle.adjust=0;
   DB.goals.forEach(function(g){ g.fundedCycle=null; });
   save(); render();
-  if(!quiet) toast("Cycle now "+fmtD(DB.cycle.start)+" to "+fmtD(DB.cycle.end));
+  toast("Cycle now "+fmtD(DB.cycle.start)+" to "+fmtD(DB.cycle.end));
 }
 function openReserved(){
   openSheet("Set aside from past cycles",
@@ -970,16 +1170,45 @@ function openAdjust(){
 function openSheet(title,body,onSave){
   var s=$("#sheet");
   s.innerHTML='<div class="grabzone"><div class="grab"></div></div><h3>'+esc(title)+'</h3>'+body
-    +'<div class="btnrow"><button class="btn" id="shSave">Save</button><button class="btn sec" id="shX">Cancel</button></div>';
+    +'<div class="btnrow stick"><button class="btn" id="shSave">Save</button><button class="btn sec" id="shX">Cancel</button></div>';
   lockBody();
   s.style.transition=""; s.style.transform="";
   $("#scrim").style.opacity="";
   $("#scrim").classList.add("on"); s.classList.add("on");
   s.scrollTop=0;
+  fitSheet();
   $("#shX").addEventListener("click",closeSheet);
   $("#shSave").addEventListener("click",function(){ if(onSave()!==false){ closeSheet(); save(); render(); } });
 }
-function closeSheet(){ $("#sheet").classList.remove("on"); $("#scrim").classList.remove("on"); unlockBody(); }
+function closeSheet(){
+  var s=$("#sheet");
+  s.classList.remove("on"); $("#scrim").classList.remove("on");
+  s.style.bottom=""; s.style.maxHeight="";
+  unlockBody();
+}
+/* keep the sheet, and its Save button, above the on-screen keyboard */
+function fitSheet(){
+  var vv=window.visualViewport; if(!vv) return;
+  var s=$("#sheet"); if(!s.classList.contains("on")) return;
+  var kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+  s.style.bottom = kb+"px";
+  s.style.maxHeight = Math.max(220, Math.round(vv.height-36))+"px";
+}
+if(window.visualViewport){
+  window.visualViewport.addEventListener("resize",fitSheet);
+  window.visualViewport.addEventListener("scroll",fitSheet);
+}
+document.addEventListener("focusin",function(e){
+  var s=$("#sheet"); if(!s.classList.contains("on")) return;
+  if(!e.target||!e.target.closest||!e.target.closest("#sheet")) return;
+  setTimeout(function(){
+    fitSheet();
+    try{ e.target.scrollIntoView({block:"center"}); }catch(_){}
+  },140);
+});
+window.addEventListener("error",function(e){
+  try{ toast("Something broke: "+(e.message||"unknown")); }catch(_){}
+});
 var lockY=0;
 function lockBody(){
   lockY = window.scrollY || window.pageYOffset || 0;
@@ -1011,7 +1240,9 @@ function openTxn(id,preKind){
     +fld("Amount","txAmt","number",T?T.amt:"")
     +'<div id="txCatWrap">'+sel("What","txCat",cats,T?T.cat:DB.cats[0].id)+'</div>'
     +sel("From","txAcct",accts,T?T.acct:DB.accounts[0].id)
-    +'<div id="txToWrap">'+sel("To","txTo",accts,(T&&T.to)?T.to:(DB.accounts[1]||DB.accounts[0]).id)+'</div>'
+    +'<div id="txToWrap">'+sel("To","txTo",accts,(T&&T.to)?T.to:(DB.accounts[1]||DB.accounts[0]).id)
+      +fld("Transfer fee","txFee","number",(T&&T.fee)?T.fee:"")
+      +'<div class="hint" style="margin-top:-2px">Cash-in, cash-out or send-money charges. It comes out of the account you send from and counts as spending.</div>'+'</div>'
     +'<div id="txBorrow">'
       +fld("Lender","bwLen","text","")
       +sel("How you repay it","bwMode",[["one","One payment, with a fee"],["inst","Monthly instalments"]],"one")
@@ -1063,12 +1294,14 @@ function openTxn(id,preKind){
       applyTxn(T,-1);
       T.kind=k; T.amt=a; T.cat=$("#txCat").value; T.acct=$("#txAcct").value;
       T.to=$("#txTo").value; T.date=$("#txDate").value; T.note=$("#txNote").value;
+      T.fee=(k==="xfer") ? (+$("#txFee").value||0) : 0;
       if(T.kind==="xfer" && T.to===T.acct){ toast("Pick two different accounts"); applyTxn(T,1); return false; }
       applyTxn(T,1);
       toast("Updated");
     } else {
       if(k==="xfer" && $("#txTo").value===$("#txAcct").value){ toast("Pick two different accounts"); return false; }
-      addTxn({kind:k,amt:a,cat:$("#txCat").value,acct:$("#txAcct").value,to:$("#txTo").value,date:$("#txDate").value,note:$("#txNote").value});
+      addTxn({kind:k,amt:a,cat:$("#txCat").value,acct:$("#txAcct").value,to:$("#txTo").value,
+              fee:(k==="xfer")?(+$("#txFee").value||0):0,date:$("#txDate").value,note:$("#txNote").value});
     }
     return true;
   });
@@ -1223,8 +1456,9 @@ function openFix(id){
 function applyTxn(T,dir){
   var amt=+T.amt||0;
   if(T.kind==="xfer"){
+    var fee=+T.fee||0;
     var F=acct(T.acct), X=acct(T.to);
-    if(F) F.bal = (+F.bal||0) + dir*(F.type==="credit" ?  amt : -amt);
+    if(F) F.bal = (+F.bal||0) + dir*(F.type==="credit" ?  (amt+fee) : -(amt+fee));
     if(X) X.bal = (+X.bal||0) + dir*(X.type==="credit" ? -amt :  amt);
     return;
   }
@@ -1239,7 +1473,7 @@ function addTxn(t){
   applyTxn(t,1);
   var A=acct(t.acct);
   save(); render();
-  if(t.kind==="xfer"){ var X=acct(t.to); toast(P(t.amt)+" moved"+(A&&X?" from "+A.name+" to "+X.name:"")+"."); }
+  if(t.kind==="xfer"){ var X=acct(t.to); toast(P(t.amt)+" moved"+(A&&X?" from "+A.name+" to "+X.name:"")+((+t.fee||0)>0?", "+P(t.fee)+" fee":"")+"."); }
   else if(t.kind==="inc") toast(P(t.amt)+" in"+(A?" to "+A.name:"")+".");
   else if(A&&A.type==="credit") toast(P(t.amt)+" on "+A.name+". Bill now "+P(A.bal)+".");
   else toast(P(t.amt)+" logged. "+P(todayAllowance())+" left today.",function(){ delTxn(t.id); });

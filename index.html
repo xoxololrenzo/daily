@@ -165,6 +165,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 .sheet h3{margin:0 0 14px;font-size:17px;font-weight:700}
 .grabzone{padding:2px 0 11px;margin:-6px 0 0;cursor:grab;touch-action:none}
 .sheet .stick{position:sticky;bottom:calc(-1px - var(--safe-b));background:var(--surface);padding:10px 0 calc(4px + var(--safe-b));margin-top:12px;z-index:3;box-shadow:0 -14px 14px -10px rgba(0,0,0,.28)}
+.row.skip .t,.row.skip .v{opacity:.42;text-decoration:line-through}
 .grab{width:42px;height:5px;border-radius:3px;background:var(--rule-2);margin:0 auto}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 
@@ -183,6 +184,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
   <div class="view" id="v-cal"></div>
   <div class="view" id="v-loans"></div>
   <div class="view" id="v-setup"></div>
+  <div class="view" id="v-plan"></div>
 </div>
 
 <button class="fab on" id="fab" aria-label="Add spending">+</button>
@@ -202,7 +204,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 <script>
 "use strict";
 /* ===== Daily v1.1 — everything stays in this browser. No personal data in this file. ===== */
-var VER="1.21", KEY="daily.v1";
+var VER="1.22", KEY="daily.v1";
 var $=function(s,r){ return (r||document).querySelector(s); };
 var el=function(t){ return document.createElement(t); };
 var ACCENTS=["#1D6FA3","#1F6B4F","#8A3E9E","#C2740A","#A8341E","#2B6DB0","#0E7C86","#B03A6B"];
@@ -430,10 +432,11 @@ var VIEW="today";
 var lastView=null;
 function render(){
   var keepY = (VIEW===lastView) ? (window.scrollY||window.pageYOffset||0) : 0;
-  ["today","money","cal","loans","setup"].forEach(function(v){ $("#v-"+v).classList.toggle("on",v===VIEW); });
-  document.querySelectorAll("nav button").forEach(function(b){ b.setAttribute("aria-current", b.dataset.v===VIEW?"true":"false"); });
+  ["today","money","cal","loans","setup","plan"].forEach(function(v){ $("#v-"+v).classList.toggle("on",v===VIEW); });
+  var navFor = (VIEW==="plan") ? "setup" : VIEW;
+  document.querySelectorAll("nav button").forEach(function(b){ b.setAttribute("aria-current", b.dataset.v===navFor?"true":"false"); });
   $("#fab").classList.toggle("on", VIEW==="today"||VIEW==="money");
-  ({today:renderToday,money:renderMoney,cal:renderCal,loans:renderLoans,setup:renderSetup})[VIEW]();
+  ({today:renderToday,money:renderMoney,cal:renderCal,loans:renderLoans,setup:renderSetup,plan:renderPlanView})[VIEW]();
   lastView=VIEW;
   window.scrollTo(0,keepY);
 }
@@ -699,8 +702,6 @@ function renderLoans(){
   });
   h+='<div class="row" style="border-top:2px solid var(--ink);border-bottom:none;padding-top:10px"><div class="g"><div class="t" style="font-weight:700">Total</div></div><div class="v num">'+P(committedTotal())+'</div></div></div>';
 
-  h+=renderPlan();
-
   h+='<div class="card"><h2>Schedule</h2><div class="seg" id="loanSeg">'
     +sg2("due","Upcoming")+sg2("month","By month")+sg2("lender","By lender")+sg2("paid","Paid")+'</div>';
   var rows=DB.loans.slice().sort(function(a,b){ return a.due<b.due?-1:1; });
@@ -738,7 +739,6 @@ function renderLoans(){
   h+='<div class="btnrow"><button class="btn sec" id="addLoan">Add a loan</button><button class="btn sec" id="addPay">One payment</button></div></div>';
 
   v.innerHTML=h;
-  wirePlan(v);
   $("#loanSeg").addEventListener("click",function(e){ var b=e.target.closest("button"); if(b){ loanFilter=b.dataset.k; renderLoans(); } });
   v.querySelectorAll("[data-toggle]").forEach(function(b){
     b.addEventListener("click",function(){
@@ -751,94 +751,196 @@ function renderLoans(){
   $("#addPay").addEventListener("click",function(){ openLoan("new"); });
 }
 var planOff=1;
+function planGet(s){
+  if(!DB.plan) DB.plan={};
+  var v=DB.plan[s];
+  if(typeof v==="number") v={pay:v};
+  if(!v || typeof v!=="object") v={};
+  if(DB.planOff && DB.planOff[s]!=null && v.off==null) v.off=+DB.planOff[s];
+  return v;
+}
+function planPut(s,O){
+  if(!DB.plan) DB.plan={};
+  var empty = O.pay==null && O.sav==null && O.off==null && O.livDay==null
+              && !(O.skip||[]).length && !(O.add||[]).length;
+  if(empty){ delete DB.plan[s]; } else { DB.plan[s]=O; }
+  if(DB.planOff) delete DB.planOff[s];
+  save();
+}
+function planKey(x){ return x.id+"@"+x.date; }
 function planFor(n){
-  var c=cycleAt(n);
+  var c=cycleAt(n), O=planGet(c.start);
   var days=between(c.start,c.end)+1;
-  var items=commitmentsIn(c.start,c.end,true);
-  var due=0; items.forEach(function(x){ due+=x.amt; });
-  var sav=0; DB.goals.forEach(function(g){ var d=goalDay(g); if(!d || dayInWindow(d,c.start,c.end)) sav+=(+g.perCycle||0); });
-  var off=(DB.planOff&&DB.planOff[c.start]!=null) ? +DB.planOff[c.start] : officeDaysPlanned(c.start,c.end);
-  var offSet=!!(DB.planOff&&DB.planOff[c.start]!=null);
-  var fare=off*(+DB.settings.farePerDay||0);
-  var liv=Math.round(typicalDaily()*days);
-  var pay=(DB.plan&&DB.plan[c.start]!=null)?+DB.plan[c.start]:(+DB.cycle.income||0);
-  return {start:c.start,end:c.end,days:days,items:items,due:due,sav:sav,fare:fare,off:off,offSet:offSet,
-          liv:liv,pay:pay,left:pay-due-sav-fare-liv};
-}
-function prow(k,v,sub,cls){
-  return '<div class="row"><div class="g"><div class="t">'+k+'</div>'+(sub?'<div class="s">'+sub+'</div>':'')
-    +'</div><div class="v num"'+(cls?' style="color:var('+cls+')"':'')+'>'+P(v)+'</div></div>';
-}
-function renderPlan(){
-  var p=planFor(planOff), h="";
-  h+='<div class="card"><h2>Next cutoff</h2>'
-    +'<div class="seg" id="planSeg" style="justify-content:space-between">'
-    +'<button data-p="-1"'+(planOff<=1?" disabled":"")+'>‹</button>'
-    +'<button data-p="0" aria-pressed="true">'+fmtD(p.start)+' – '+fmtD(p.end)+'</button>'
-    +'<button data-p="1">›</button></div>';
+  var items=commitmentsIn(c.start,c.end,true), skip=O.skip||[], due=0;
+  items.forEach(function(x){ x.skip=skip.indexOf(planKey(x))>-1; if(!x.skip) due+=x.amt; });
+  (O.add||[]).forEach(function(x){
+    items.push({id:x.id,kind:"extra",name:x.name,amt:+x.amt,date:x.date||c.start,skip:false,mine:true});
+    due+=+x.amt;
+  });
+  items.sort(function(x,y){ return x.date<y.date?-1:1; });
 
-  h+=prow('Pay you expect',p.pay,'tap to change','--good');
-  h+=prow('Loans and bills due',-p.due,p.items.length+' item'+(p.items.length===1?"":"s"));
-  h+=prow('Savings',-p.sav,'goals landing in that window');
-  h+='<button class="row" id="planFare"><div class="g"><div class="t">Fare</div><div class="s">'
-    +(p.off? (p.off+' office day'+(p.off===1?'':'s')+' at '+P(DB.settings.farePerDay)+(p.offSet?', you set this':(officeDow().length?', from your usual days':''))) : 'no office days yet \u2014 tap to set them')
-    +'</div></div><div class="v num neg">'+P(-p.fare)+'</div><span class="chev">\u203a</span></button>';
-  h+=prow('Living at your usual pace',-p.liv,P(typicalDaily())+' a day × '+p.days+' days, loan payments excluded');
+  var autoSav=0;
+  DB.goals.forEach(function(g){ var d=goalDay(g); if(!d || dayInWindow(d,c.start,c.end)) autoSav+=(+g.perCycle||0); });
+  var sav=(O.sav!=null)?+O.sav:autoSav;
+
+  var autoOff=officeDaysPlanned(c.start,c.end);
+  var off=(O.off!=null)?+O.off:autoOff;
+  var fare=off*(+DB.settings.farePerDay||0);
+
+  var autoLiv=typicalDaily();
+  var livDay=(O.livDay!=null)?+O.livDay:autoLiv;
+
+  var pay=(O.pay!=null)?+O.pay:(+DB.cycle.income||0);
+
+  return {start:c.start,end:c.end,days:days,items:items,due:due,
+    sav:sav,autoSav:autoSav,savSet:O.sav!=null,
+    off:off,autoOff:autoOff,offSet:O.off!=null,fare:fare,
+    liv:livDay*days,livDay:livDay,autoLiv:autoLiv,livSet:O.livDay!=null,
+    pay:pay,paySet:O.pay!=null,
+    edited:!!(O.pay!=null||O.sav!=null||O.off!=null||O.livDay!=null||(O.skip||[]).length||(O.add||[]).length),
+    left:pay-due-sav-fare-livDay*days};
+}
+function prow(id,k,val,sub,set){
+  return '<button class="row" id="'+id+'"><div class="g"><div class="t">'+k
+    +(set?' <span class="pill cr">yours</span>':'')+'</div><div class="s">'+sub+'</div></div>'
+    +'<div class="v num'+(val<0?" neg":(val>0?" pos":""))+'">'+P(val)+'</div><span class="chev">\u203a</span></button>';
+}
+function renderPlanView(){
+  var v=$("#v-plan"), p=planFor(planOff), h="";
+  h+='<div class="vhead"><h1>Plan a cutoff</h1><span class="sub">a sandbox \u2014 nothing here touches your real balances</span></div>';
+  h+='<div class="btnrow" style="margin-top:0"><button class="btn sec" id="planBack">\u2039 Back to setup</button></div>';
+
+  h+='<div class="card"><div class="seg" id="planSeg" style="justify-content:space-between;margin-bottom:14px">'
+    +'<button data-p="-1"'+(planOff<=1?" disabled":"")+'>\u2039</button>'
+    +'<button data-p="0" aria-pressed="true">'+fmtD(p.start)+' \u2013 '+fmtD(p.end)+'</button>'
+    +'<button data-p="1">\u203a</button></div>';
+
+  h+=prow('plPay','Pay you expect',p.pay,p.days+' days in this cutoff',p.paySet);
+  h+=prow('plDue','Loans and bills',-p.due,p.items.filter(function(x){return !x.skip;}).length+' of '+p.items.length+' counted, tap to change');
+  h+=prow('plSav','Savings',-p.sav,p.savSet?('your figure, usually '+P(p.autoSav)):'goals landing in this window',p.savSet);
+  h+=prow('plFare','Fare',-p.fare,(p.off||0)+' office day'+(p.off===1?'':'s')+' at '+P(DB.settings.farePerDay),p.offSet);
+  h+=prow('plLiv','Living',-p.liv,P(p.livDay)+' a day \u00d7 '+p.days+' days'+(p.livSet?'':', your usual pace'),p.livSet);
 
   var ok=p.left>=0;
   h+='<div class="row" style="border-top:2px solid var(--ink);border-bottom:none;padding-top:11px">'
     +'<div class="g"><div class="t" style="font-weight:700">'+(ok?'Left over':'Short by')+'</div>'
-    +'<div class="s">'+(ok? (P(p.left/p.days)+' a day spare') : 'this cutoff does not cover itself')+'</div></div>'
+    +'<div class="s">'+(ok?(P(p.left/p.days)+' a day spare'):'this plan does not balance yet')+'</div></div>'
     +'<div class="v num" style="font-size:18px;color:var('+(ok?'--good':'--alarm')+')">'+P(Math.abs(p.left))+'</div></div>';
+  if(!ok) h+='<div class="hint">Move a payment, trim the daily figure, or change what you expect to be paid, and watch this number. Borrowing '+P(-p.left)+' closes this cutoff and opens the same hole in the next one, plus the fee.</div>';
+  h+='</div>';
 
-  if(!ok){
-    h+='<div class="hint">To break even without borrowing you need to find '+P(-p.left)+' — that is '
-      +P(-p.left/p.days)+' a day off your usual pace, or one payment moved. Borrowing it closes this cutoff and opens a hole in the next one, plus the fee.</div>';
-  }
+  h+='<div class="card"><h2>What is due</h2>'
+    +'<div class="hint" style="margin-top:0;margin-bottom:8px">Tap a payment to take it out of this plan, to see what moving it would do. It stays in your real schedule either way.</div>';
+  if(!p.items.length) h+='<div class="empty">Nothing scheduled in this window.</div>';
+  p.items.forEach(function(x){
+    h+='<button class="row'+(x.skip?" skip":"")+'" data-sk="'+esc(planKey(x))+'"'+(x.mine?' data-mine="'+x.id+'"':'')+'>'
+      +'<div class="g"><div class="t">'+esc(x.name)+(x.mine?' <span class="pill cr">added</span>':'')+'</div>'
+      +'<div class="s">'+fmtD(x.date)+(x.skip?' \u00b7 not counted':'')+'</div></div>'
+      +'<div class="v num">'+P(x.amt)+'</div></button>';
+  });
+  h+='<div class="btnrow"><button class="btn sec" id="plAdd">Add something</button>'
+    +(p.edited?'<button class="btn sec" id="plReset">Reset this cutoff</button>':'')+'</div></div>';
 
-  if(p.items.length){
-    h+='<div style="font-size:12px;font-weight:700;color:var(--muted);margin:16px 0 2px;text-transform:uppercase;letter-spacing:.04em">What is due</div>';
-    p.items.forEach(function(x){
-      h+='<div class="row"><div class="g"><div class="t">'+esc(x.name)+'</div><div class="s">'+fmtD(x.date)+'</div></div><div class="v num">'+P(x.amt)+'</div></div>';
-    });
+  h+='<div class="card"><h2>The next few</h2>';
+  for(var i=1;i<=6;i++){
+    var q=planFor(i), good=q.left>=0;
+    h+='<button class="row" data-jump="'+i+'"><div class="g"><div class="t">'+fmtD(q.start)+' \u2013 '+fmtD(q.end)+'</div>'
+      +'<div class="s">'+P(q.due)+' due'+(q.edited?' \u00b7 you edited this one':'')+'</div></div>'
+      +'<div class="v num" style="color:var('+(good?'--good':'--alarm')+')">'+(good?'+':'')+P(q.left)+'</div></button>';
   }
-  h+='<div class="hint">Living and fare are estimates from how you actually spend. Everything else is real, from your loan schedule and fixed bills. Credit-card balances are left out because they depend on what you spend between now and then.</div>';
-  return h+'</div>';
-}
-function wirePlan(v){
-  var pf=$("#planFare"); if(pf) pf.addEventListener("click",openPlanOffice);
-  var seg=$("#planSeg"); if(!seg) return;
-  seg.addEventListener("click",function(e){
-    var b=e.target.closest("button"); if(!b) return;
+  h+='<div class="hint">Everything is an estimate you control. Credit-card balances are left out, because what you owe them then depends on what you spend between now and then.</div></div>';
+
+  v.innerHTML=h;
+  $("#planBack").addEventListener("click",function(){ VIEW="setup"; render(); });
+  $("#planSeg").addEventListener("click",function(e){
+    var b=e.target.closest("button"); if(!b||b.disabled) return;
     var d=+b.dataset.p;
-    if(d===0){ openPlanPay(); return; }
-    planOff=Math.max(1,Math.min(12,planOff+d));
-    renderLoans();
+    if(d===0) return;
+    planOff=Math.max(1,Math.min(24,planOff+d)); renderPlanView();
+  });
+  $("#plPay").addEventListener("click",openPlanPay);
+  $("#plDue").addEventListener("click",function(){ var el=v.querySelectorAll(".card")[1]; if(el) el.scrollIntoView({block:"start"}); });
+  $("#plSav").addEventListener("click",openPlanSav);
+  $("#plFare").addEventListener("click",openPlanOffice);
+  $("#plLiv").addEventListener("click",openPlanLiv);
+  v.querySelectorAll("[data-sk]").forEach(function(b){
+    b.addEventListener("click",function(){
+      var O=planGet(p.start), k=b.dataset.sk;
+      if(b.dataset.mine){
+        O.add=(O.add||[]).filter(function(x){ return x.id!==b.dataset.mine; });
+        planPut(p.start,O); renderPlanView(); toast("Removed from the plan"); return;
+      }
+      O.skip=O.skip||[];
+      var i=O.skip.indexOf(k);
+      if(i>-1) O.skip.splice(i,1); else O.skip.push(k);
+      planPut(p.start,O); renderPlanView();
+    });
+  });
+  $("#plAdd").addEventListener("click",openPlanAdd);
+  var rb=$("#plReset");
+  if(rb) rb.addEventListener("click",function(){
+    delete DB.plan[p.start];
+    if(DB.planOff) delete DB.planOff[p.start];
+    save(); renderPlanView(); toast("Back to the real numbers");
+  });
+  v.querySelectorAll("[data-jump]").forEach(function(b){
+    b.addEventListener("click",function(){ planOff=+b.dataset.jump; renderPlanView(); window.scrollTo(0,0); });
   });
 }
-function openPlanOffice(){
-  var c=cycleAt(planOff);
-  if(!DB.planOff) DB.planOff={};
-  var auto=officeDaysPlanned(c.start,c.end);
-  var cur=(DB.planOff[c.start]!=null)?DB.planOff[c.start]:auto;
-  openSheet("Office days, "+fmtD(c.start)+" – "+fmtD(c.end),
-    fld("How many office days","poff","number",cur)
-    +'<div class="hint">Your usual days ('+(officeDow().length?officeDow().map(function(x){return DAYS[x];}).join(", "):"none set yet")
-    +') work out to '+auto+' in this window. Change the number for a cutoff you know is different — a holiday week, extra RTO days, a leave.</div>'
-    +'<div class="btnrow"><button class="btn sec" id="poffAuto">Go back to my usual days</button></div>',
-    function(){ DB.planOff[c.start]=Math.max(0,+$("#poff").value||0); return true; });
-  $("#poffAuto").addEventListener("click",function(){
-    delete DB.planOff[c.start]; closeSheet(); save(); renderLoans(); toast("Back to your usual days");
+function planSheet(title,body,onSave,autoKey,autoLabel){
+  var c=cycleAt(planOff), O=planGet(c.start);
+  var extra = (autoKey && O[autoKey]!=null)
+    ? '<div class="btnrow"><button class="btn sec" id="plAuto">'+autoLabel+'</button></div>' : '';
+  openSheet(title,body+extra,function(){ var r=onSave(O); if(r!==false) planPut(c.start,O); return r; });
+  var ab=$("#plAuto");
+  if(ab) ab.addEventListener("click",function(){
+    delete O[autoKey];
+    closeSheet(); planPut(c.start,O); renderPlanView(); toast("Back to the usual figure");
   });
 }
 function openPlanPay(){
-  var c=cycleAt(planOff);
-  if(!DB.plan) DB.plan={};
-  var cur=(DB.plan[c.start]!=null)?DB.plan[c.start]:(+DB.cycle.income||0);
-  openSheet("Pay for "+fmtD(c.start)+" – "+fmtD(c.end),
-    fld("Amount you expect","ppay","number",cur)
-    +'<div class="hint">Leave it as your usual pay, or change it for a cutoff you know will be different — a 13th month, a deduction, an unpaid day.</div>',
-    function(){ DB.plan[c.start]=+$("#ppay").value||0; return true; });
+  var p=planFor(planOff);
+  planSheet("Pay for "+fmtD(p.start)+" \u2013 "+fmtD(p.end),
+    fld("Amount you expect","ppay","number",p.pay)
+    +'<div class="hint">Your usual pay is '+P(+DB.cycle.income||0)+'. Change it for a cutoff you know is different \u2014 a 13th month, a deduction, unpaid days.</div>',
+    function(O){ O.pay=+$("#ppay").value||0; return true; },"pay","Back to my usual pay");
+}
+function openPlanSav(){
+  var p=planFor(planOff);
+  planSheet("Savings for "+fmtD(p.start)+" \u2013 "+fmtD(p.end),
+    fld("Set aside for savings","psav","number",p.sav)
+    +'<div class="hint">Your goals landing in this window add up to '+P(p.autoSav)+'. Put 0 if you plan to skip savings that cutoff, or more if you want to catch up.</div>',
+    function(O){ O.sav=Math.max(0,+$("#psav").value||0); return true; },"sav","Back to my goals");
+}
+function openPlanOffice(){
+  var p=planFor(planOff);
+  planSheet("Office days, "+fmtD(p.start)+" \u2013 "+fmtD(p.end),
+    fld("How many office days","poff","number",p.off)
+    +'<div class="hint">Your usual days ('+(officeDow().length?officeDow().map(function(x){return DAYS[x].slice(0,3);}).join(", "):"none set yet")
+    +') give '+p.autoOff+' in this window, at '+P(DB.settings.farePerDay)+' each. Change it for a holiday week, extra RTO days, or leave.</div>',
+    function(O){ O.off=Math.max(0,+$("#poff").value||0); return true; },"off","Back to my usual days");
+}
+function openPlanLiv(){
+  var p=planFor(planOff);
+  planSheet("Living, "+fmtD(p.start)+" \u2013 "+fmtD(p.end),
+    fld("A day","pliv","number",Math.round(p.livDay))
+    +'<div class="hint">Your usual pace is '+P(p.autoLiv)+' a day, worked out from your last 60 days with loan payments left out. Over '+p.days+' days that is '+P(p.autoLiv*p.days)+'. Lower it to see what cutting back actually buys you.</div>',
+    function(O){ O.livDay=Math.max(0,+$("#pliv").value||0); return true; },"livDay","Back to my usual pace");
+}
+function openPlanAdd(){
+  var p=planFor(planOff);
+  openSheet("Add to this plan",
+    fld("What is it","paName","text","")
+    +fld("Amount","paAmt","number","")
+    +fld("Date","paDate","date",p.start)
+    +'<div class="hint">A one-off you know is coming that is not in your schedule yet \u2014 a trip, a gift, a fee, a renewal. It only lives inside this plan.</div>',
+    function(){
+      var amt=+$("#paAmt").value||0; if(!amt){ toast("Enter an amount"); return false; }
+      var O=planGet(p.start);
+      O.add=O.add||[];
+      O.add.push({id:uid(),name:$("#paName").value||"One-off",amt:amt,date:$("#paDate").value||p.start});
+      planPut(p.start,O); return true;
+    });
 }
 function sg2(k,label){ return '<button data-k="'+k+'" aria-pressed="'+(loanFilter===k)+'">'+label+'</button>'; }
 function openLoanPlan(){
@@ -898,6 +1000,8 @@ function renderSetup(){
     +'<div class="hint" style="margin-top:-4px;margin-bottom:12px">A reminder only. The daily number uses your account balances.</div>'
     +sel("Repeat","crule",[["semimonthly","15th and end of month"],["monthly","Monthly"],["fortnightly","Every two weeks"],["custom","Custom, I set it myself"]],DB.settings.rule)
     +'<div class="hint" style="margin-top:0">Saves as you type. Nothing here deletes anything.</div>'
+    +'<div class="btnrow"><button class="btn sec" id="planBtn">Plan a future cutoff \u203a</button></div>'
+    +'<div class="hint">Check a cutoff before it arrives: what is due, what you expect to be paid, and whether it covers itself. Change anything you like in there, none of it touches your real numbers.</div>'
     +'<div class="btnrow"><button class="btn sec" id="newCycle">Payday \u2014 move to next cycle</button></div>'
     +'<div class="hint">Tap on payday. Rolls the dates, picks up the loans due, unlocks savings. Balances and history stay.</div></div>';
 
@@ -1014,6 +1118,7 @@ function wireSetup(v){
   ["cs","ce","cin","crule"].forEach(function(id){
     var n=$("#"+id); if(n) n.addEventListener("change",autoCycle);
   });
+  $("#planBtn").addEventListener("click",function(){ VIEW="plan"; render(); window.scrollTo(0,0); });
   $("#newCycle").addEventListener("click",rollCycle);
   $("#fare").addEventListener("change",function(){ DB.settings.farePerDay=+this.value||0; save(); });
   $("#dowSeg").addEventListener("click",function(e){

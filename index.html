@@ -159,12 +159,16 @@ button.day{font:inherit;cursor:pointer}
 
 .scrim{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;display:none;touch-action:none;overscroll-behavior:none}
 .scrim.on{display:block}
-.sheet{position:fixed;left:0;right:0;bottom:0;z-index:51;background:var(--surface);border-radius:18px 18px 0 0;padding:16px 16px calc(18px + var(--safe-b));max-height:85dvh;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;transform:translateY(101%);transition:transform .22s ease-out;max-width:560px;margin:0 auto}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:51;background:var(--surface);border-radius:18px 18px 0 0;padding:16px 16px calc(12px + var(--safe-b));max-height:85dvh;display:flex;flex-direction:column;overflow:hidden;transform:translateY(101%);transition:transform .22s ease-out;max-width:560px;margin:0 auto}
+.sbody{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding-bottom:2px}
 .sheet.on{transform:translateY(0)}
 body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 .sheet h3{margin:0 0 14px;font-size:17px;font-weight:700}
 .grabzone{padding:2px 0 11px;margin:-6px 0 0;cursor:grab;touch-action:none}
-.sheet .stick{position:sticky;bottom:calc(-1px - var(--safe-b));background:var(--surface);padding:10px 0 calc(4px + var(--safe-b));margin-top:12px;z-index:3;box-shadow:0 -14px 14px -10px rgba(0,0,0,.28)}
+.sheet .foot{flex:0 0 auto;display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--rule)}
+.sheet .foot .btn{width:100%}
+.sheet .foot #shSave{order:2}
+.sheet .foot #shX{order:1}
 .row.skip .t,.row.skip .v{opacity:.42;text-decoration:line-through}
 .grab{width:42px;height:5px;border-radius:3px;background:var(--rule-2);margin:0 auto}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -204,7 +208,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 <script>
 "use strict";
 /* ===== Daily v1.1 — everything stays in this browser. No personal data in this file. ===== */
-var VER="1.23", KEY="daily.v1";
+var VER="1.24", KEY="daily.v1";
 var $=function(s,r){ return (r||document).querySelector(s); };
 var el=function(t){ return document.createElement(t); };
 var ACCENTS=["#1D6FA3","#1F6B4F","#8A3E9E","#C2740A","#A8341E","#2B6DB0","#0E7C86","#B03A6B"];
@@ -320,11 +324,56 @@ function dayInWindow(day,a,b){
   }
   return null;
 }
+function goalById(id){ for(var i=0;i<DB.goals.length;i++) if(DB.goals[i].id===id) return DB.goals[i]; return null; }
+function onOrAfter(from,day){
+  if(!day) return null;
+  var d=parse(from), guard=0;
+  while(guard++<70){
+    var eff=Math.min(+day,lastDay(d.getFullYear(),d.getMonth()));
+    if(d.getDate()<=eff){ d.setDate(eff); return iso(d); }
+    d.setDate(1); d.setMonth(d.getMonth()+1);
+  }
+  return null;
+}
+/* a purchase lands on the statement that closes next, and that statement
+   is paid on the first due day after it closes */
+function creditDueFor(A,when){
+  var S=+A.stmtDay||0, D=+A.dueDay||0;
+  if(!D) return null;
+  if(!S) return onOrAfter(when,D);
+  var close=onOrAfter(when,S);
+  if(!close) return null;
+  return onOrAfter(addD(close,1),D);
+}
+/* what this card owes, split by the date each bill is actually due */
+function creditBuckets(A){
+  var by={}, logged=0;
+  DB.txns.forEach(function(T){
+    if(T.acct!==A.id || T.kind==="inc") return;
+    var amt=(+T.amt||0)+(T.kind==="xfer"?(+T.fee||0):0);
+    var due=creditDueFor(A,T.date); if(!due) return;
+    by[due]=(by[due]||0)+amt; logged+=amt;
+  });
+  var older=Math.round((+A.bal||0)-logged);
+  if(older>0){
+    var d0=onOrAfter(todayISO(),+A.dueDay||0);
+    if(d0) by[d0]=(by[d0]||0)+older;
+  }
+  return by;
+}
 function commitmentsIn(a,b,noCredit){
   var out=[];
   DB.loans.forEach(function(L){ if(!L.paid && L.due>=a && L.due<=b) out.push({id:L.id,kind:"loan",name:(L.lender?L.lender+" ":"")+L.loan,amt:+L.amt,date:L.due}); });
   DB.fixed.forEach(function(F){ var d=dayInWindow(F.day,a,b); if(d) out.push({id:F.id,kind:"fixed",name:F.name,amt:+F.amt,date:d}); });
-  if(!noCredit) DB.accounts.forEach(function(A){ if(A.type==="credit"&&(+A.bal||0)>0){ var d=dayInWindow(A.dueDay,a,b); if(d) out.push({id:A.id,kind:"credit",name:A.name+" bill",amt:+A.bal,date:d}); } });
+  if(!noCredit) DB.accounts.forEach(function(A){
+    if(A.type!=="credit") return;
+    var by=creditBuckets(A);
+    Object.keys(by).forEach(function(due){
+      if(due<a || due>b) return;
+      if(Math.round(by[due])<=0) return;
+      out.push({id:A.id+"@"+due,kind:"credit",name:A.name+" bill",amt:by[due],date:due});
+    });
+  });
   out.sort(function(x,y){ return x.date<y.date?-1:1; });
   return out;
 }
@@ -347,14 +396,7 @@ function typicalDaily(){
   var s=0; for(var i=0;i<keep;i++) s+=v[i];
   return s/keep;
 }
-function commitments(){
-  var out=[];
-  DB.loans.forEach(function(L){ if(!L.paid && inCycle(L.due)) out.push({id:L.id,kind:"loan",name:(L.lender?L.lender+" ":"")+L.loan,amt:+L.amt,date:L.due}); });
-  DB.fixed.forEach(function(F){ var d=dayInCycle(F.day); if(d) out.push({id:F.id,kind:"fixed",name:F.name,amt:+F.amt,date:d}); });
-  DB.accounts.forEach(function(A){ if(A.type==="credit"&&(+A.bal||0)>0){ var d=dayInCycle(A.dueDay); if(d) out.push({id:A.id,kind:"credit",name:A.name+" bill",amt:+A.bal,date:d}); } });
-  out.sort(function(a,b){ return a.date<b.date?-1:1; });
-  return out;
-}
+function commitments(){ return commitmentsIn(DB.cycle.start,DB.cycle.end); }
 function committedTotal(){ var s=0; commitments().forEach(function(c){ s+=c.amt; }); return s; }
 function officeDaysLeft(){ var t=todayISO(),n=0; DB.office.forEach(function(d){ if(d>=t&&inCycle(d)) n++; }); return n; }
 function fareReserve(){ return officeDaysLeft()*(+DB.settings.farePerDay||0); }
@@ -589,12 +631,13 @@ function renderMoney(){
   if(creds.length){
     h+='<div class="card"><h2>Credit</h2>';
     creds.forEach(function(A){
-      var d=dayInCycle(A.dueDay);
+      var by=creditBuckets(A), ks=Object.keys(by).sort();
+      var nxt=ks.filter(function(k){ return Math.round(by[k])>0; })[0];
       h+='<button class="row" data-bal="'+A.id+'"><div class="g"><div class="t">'+esc(A.name)+'</div>'
-        +'<div class="s">'+(d?("Due "+fmtD(d)):("Due day "+(A.dueDay||"?")))+'</div></div>'
+        +'<div class="s">'+(nxt?("Next bill "+P(by[nxt])+" on "+fmtD(nxt)+" "+parse(nxt).getFullYear()):("Due day "+(A.dueDay||"?")))+'</div></div>'
         +'<div class="v num">'+P(+A.bal||0)+'</div><span class="chev">›</span></button>';
     });
-    h+='<div class="hint">Charging here never touches today’s number. It goes on the bill.</div></div>';
+    h+='<div class="hint">Charging here never touches today’s number. It lands on the statement that closes next, and shows up as due on that statement’s due date.</div></div>';
   }
 
   h+='<div class="card"><h2>Manage</h2>'
@@ -1282,13 +1325,14 @@ function openAdjust(){
 /* ---------- sheets ---------- */
 function openSheet(title,body,onSave){
   var s=$("#sheet");
-  s.innerHTML='<div class="grabzone"><div class="grab"></div></div><h3>'+esc(title)+'</h3>'+body
-    +'<div class="btnrow stick"><button class="btn" id="shSave">Save</button><button class="btn sec" id="shX">Cancel</button></div>';
+  s.innerHTML='<div class="grabzone"><div class="grab"></div></div><h3>'+esc(title)+'</h3>'
+    +'<div class="sbody">'+body+'</div>'
+    +'<div class="btnrow foot"><button class="btn" id="shSave">Save</button><button class="btn sec" id="shX">Cancel</button></div>';
   lockBody();
   s.style.transition=""; s.style.transform="";
   $("#scrim").style.opacity="";
   $("#scrim").classList.add("on"); s.classList.add("on");
-  s.scrollTop=0;
+  var sb=s.querySelector(".sbody"); if(sb) sb.scrollTop=0;
   fitSheet();
   $("#shX").addEventListener("click",closeSheet);
   $("#shSave").addEventListener("click",function(){ if(onSave()!==false){ closeSheet(); save(); render(); } });
@@ -1349,13 +1393,14 @@ function openTxn(id,preKind){
   if(!DB.cats.length){ toast("Add a category in Setup first"); return; }
   var cats=DB.cats.map(function(c){ return [c.id,c.name]; });
   var accts=DB.accounts.map(function(a){ return [a.id,a.name+(a.type==="credit"?" (credit)":"")]; });
+  var dests=accts.concat(DB.goals.map(function(g){ return ["g:"+g.id,g.name+" (savings)"]; }));
   var kinds=[["exp","Money out"],["inc","Money in"],["xfer","Transfer"]];
   if(!T) kinds.push(["borrow","Borrowed money"]);
   var body=sel("Type","txKind",kinds,T?(T.kind||"exp"):(preKind||"exp"))
     +fld("Amount","txAmt","number",T?T.amt:"")
     +'<div id="txCatWrap">'+sel("What","txCat",cats,(T&&T.cat)?T.cat:DB.cats[0].id)+'</div>'
     +sel("From","txAcct",accts,(T&&T.acct)?T.acct:DB.accounts[0].id)
-    +'<div id="txToWrap">'+sel("To","txTo",accts,(T&&T.to)?T.to:(DB.accounts[1]||DB.accounts[0]).id)
+    +'<div id="txToWrap">'+sel("To","txTo",dests,(T&&T.to)?T.to:(DB.accounts[1]||DB.accounts[0]).id)
       +fld("Transfer fee","txFee","number",(T&&T.fee)?T.fee:"")
       +'<div class="hint" style="margin-top:-2px">Cash-in, cash-out or send-money charges. It comes out of the account you send from and counts as spending.</div>'+'</div>'
     +'<div id="txBorrow">'
@@ -1410,11 +1455,11 @@ function openTxn(id,preKind){
       T.kind=k; T.amt=a; T.cat=$("#txCat").value; T.acct=$("#txAcct").value;
       T.to=$("#txTo").value; T.date=$("#txDate").value; T.note=$("#txNote").value;
       T.fee=(k==="xfer") ? (+$("#txFee").value||0) : 0;
-      if(T.kind==="xfer" && T.to===T.acct){ toast("Pick two different accounts"); applyTxn(T,1); return false; }
+      if(T.kind==="xfer" && T.to===T.acct){ toast("Pick two different places"); applyTxn(T,1); return false; }
       applyTxn(T,1);
       toast("Updated");
     } else {
-      if(k==="xfer" && $("#txTo").value===$("#txAcct").value){ toast("Pick two different accounts"); return false; }
+      if(k==="xfer" && $("#txTo").value===$("#txAcct").value){ toast("Pick two different places"); return false; }
       addTxn({kind:k,amt:a,cat:$("#txCat").value,acct:$("#txAcct").value,to:$("#txTo").value,
               fee:(k==="xfer")?(+$("#txFee").value||0):0,date:$("#txDate").value,note:$("#txNote").value});
     }
@@ -1572,9 +1617,18 @@ function applyTxn(T,dir){
   var amt=+T.amt||0;
   if(T.kind==="xfer"){
     var fee=+T.fee||0;
-    var F=acct(T.acct), X=acct(T.to);
-    if(F) F.bal = (+F.bal||0) + dir*(F.type==="credit" ?  (amt+fee) : -(amt+fee));
-    if(X) X.bal = (+X.bal||0) + dir*(X.type==="credit" ? -amt :  amt);
+    var F=acct(T.acct);
+    if(F) F.bal = (+F.bal||0) + dir*(F.type==="credit" ? (amt+fee) : -(amt+fee));
+    if(String(T.to).indexOf("g:")===0){
+      var G=goalById(String(T.to).slice(2));
+      if(G){
+        G.bal=(+G.bal||0)+dir*amt;
+        if(dir>0 && inCycle(T.date)) G.fundedCycle=DB.cycle.start;
+      }
+      return;
+    }
+    var X=acct(T.to);
+    if(X) X.bal = (+X.bal||0) + dir*(X.type==="credit" ? -amt : amt);
     return;
   }
   var A=acct(T.acct); if(!A) return;
@@ -1588,7 +1642,11 @@ function addTxn(t){
   applyTxn(t,1);
   var A=acct(t.acct);
   save(); render();
-  if(t.kind==="xfer"){ var X=acct(t.to); toast(P(t.amt)+" moved"+(A&&X?" from "+A.name+" to "+X.name:"")+((+t.fee||0)>0?", "+P(t.fee)+" fee":"")+"."); }
+  if(t.kind==="xfer"){
+    var g=(String(t.to).indexOf("g:")===0)?goalById(String(t.to).slice(2)):null;
+    var X=g||acct(t.to);
+    toast(P(t.amt)+" moved"+(A&&X?" from "+A.name+" to "+X.name:"")+((+t.fee||0)>0?", "+P(t.fee)+" fee":"")+(g?". Savings now "+P(g.bal)+".":"."));
+  }
   else if(t.kind==="inc") toast(P(t.amt)+" in"+(A?" to "+A.name:"")+".");
   else if(A&&A.type==="credit") toast(P(t.amt)+" on "+A.name+". Bill now "+P(A.bal)+".");
   else toast(P(t.amt)+" logged. "+P(todayAllowance())+" left today.",function(){ delTxn(t.id); });
@@ -1664,17 +1722,18 @@ $("#fab").addEventListener("click",function(){ openTxn(null); });
 /* drag the sheet down to dismiss */
 (function(){
   var sh=$("#sheet"), scr=$("#scrim"), y0=0, y=0, on=false, grab=false;
+  function sTop(){ var b=sh.querySelector(".sbody"); return b?b.scrollTop:0; }
   sh.addEventListener("touchstart",function(e){
     if(!sh.classList.contains("on")) return;
     grab = !!(e.target.closest && e.target.closest(".grabzone"));
-    if(sh.scrollTop>0 && !grab) return;
+    if(sTop()>0 && !grab) return;
     y0=e.touches[0].clientY; y=y0; on=true; sh.style.transition="none";
   },{passive:true});
   sh.addEventListener("touchmove",function(e){
     if(!on) return;
     y=e.touches[0].clientY;
     var d=y-y0;
-    if(d<=0 || (sh.scrollTop>0 && !grab)){ reset(); return; }
+    if(d<=0 || (sTop()>0 && !grab)){ reset(); return; }
     e.preventDefault();
     sh.style.transform="translateY("+d+"px)";
     scr.style.opacity=String(Math.max(0.15,1-d/420));

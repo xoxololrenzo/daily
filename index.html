@@ -124,6 +124,7 @@ button.row:active{background:var(--surface-2)}
 .btnrow{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .seg{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
 .seg button{background:var(--surface-2);border:1px solid var(--rule-2);color:var(--muted);border-radius:9px;padding:6px 11px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer}
+.rowopen{text-align:left;background:none;border:none;font:inherit;color:inherit;padding:0;cursor:pointer}
 .seg button[aria-pressed="true"]{border-color:var(--accent);color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent)}
 
 label.f{display:block;margin-bottom:12px}
@@ -208,7 +209,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 <script>
 "use strict";
 /* ===== Daily v1.1 — everything stays in this browser. No personal data in this file. ===== */
-var VER="1.27", KEY="daily.v1";
+var VER="1.28", KEY="daily.v1";
 var $=function(s,r){ return (r||document).querySelector(s); };
 var el=function(t){ return document.createElement(t); };
 var ACCENTS=["#1D6FA3","#1F6B4F","#8A3E9E","#C2740A","#A8341E","#2B6DB0","#0E7C86","#B03A6B"];
@@ -831,12 +832,13 @@ function renderLoans(){
     var list=rows.filter(function(L){ return !!L.paid===want; });
     if(!list.length) h+='<div class="empty">Nothing here.</div>';
     list.slice(0,60).forEach(function(L){
-      h+='<div class="row"><div class="g"><div class="t">'+esc((L.lender?L.lender+" ":"")+L.loan)+'</div><div class="s">'+fmtD(L.due)+' '+parse(L.due).getFullYear()+'</div></div>'
+      h+='<div class="row"><button class="g rowopen" data-open="'+L.id+'"><div class="t">'+esc((L.lender?L.lender+" ":"")+L.loan)+' \u203a</div><div class="s">'+fmtD(L.due)+' '+parse(L.due).getFullYear()+'</div></button>'
         +'<div class="v num">'+P2(L.amt)+'</div><button class="btn sec sm" data-toggle="'+L.id+'">'+(L.paid?"✓":"Paid")+'</button></div>';
     });
     if(list.length>60) h+='<div class="hint">Showing 60 of '+list.length+'.</div>';
   }
-  h+='<div class="btnrow"><button class="btn sec" id="addLoan">Add a loan</button><button class="btn sec" id="addPay">One payment</button></div></div>';
+  h+='<div class="hint">Tap any payment to edit or delete it.</div>'
+    +'<div class="btnrow"><button class="btn sec" id="addLoan">Add a loan</button><button class="btn sec" id="addPay">One payment</button></div></div>';
 
   v.innerHTML=h;
   $("#dueSeg").addEventListener("click",function(e){ var b=e.target.closest("button"); if(b){ dueGroup=b.dataset.g; renderLoans(); } });
@@ -854,6 +856,9 @@ function renderLoans(){
       for(var i=0;i<DB.loans.length;i++) if(DB.loans[i].id===id){ DB.loans[i].paid=!DB.loans[i].paid; break; }
       save(); renderLoans(); toast("Updated");
     });
+  });
+  v.querySelectorAll("[data-open]").forEach(function(b){
+    b.addEventListener("click",function(){ openLoan(b.dataset.open); });
   });
   $("#addLoan").addEventListener("click",openLoanPlan);
   $("#addPay").addEventListener("click",function(){ openLoan("new"); });
@@ -1093,7 +1098,11 @@ function openLoan(id){
     if(id==="new") DB.loans.push(L);
     return true;
   });
-  if(id!=="new") $("#lDel").addEventListener("click",function(){ DB.loans=DB.loans.filter(function(x){return x.id!==L.id;}); closeSheet(); save(); render(); });
+  if(id!=="new") $("#lDel").addEventListener("click",function(){
+    if(!confirm("Delete this payment?\n\n"+(L.lender?L.lender+" ":"")+L.loan+", "+P2(L.amt)+" due "+fmtD(L.due))) return;
+    DB.loans=DB.loans.filter(function(x){return x.id!==L.id;});
+    closeSheet(); save(); render(); toast("Payment deleted");
+  });
 }
 
 /* ---------- SETUP ---------- */

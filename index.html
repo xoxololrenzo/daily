@@ -209,7 +209,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 <script>
 "use strict";
 /* ===== Daily v1.1 — everything stays in this browser. No personal data in this file. ===== */
-var VER="1.28", KEY="daily.v1";
+var VER="1.30", KEY="daily.v1";
 var $=function(s,r){ return (r||document).querySelector(s); };
 var el=function(t){ return document.createElement(t); };
 var ACCENTS=["#1D6FA3","#1F6B4F","#8A3E9E","#C2740A","#A8341E","#2B6DB0","#0E7C86","#B03A6B"];
@@ -373,24 +373,34 @@ function creditDueFor(A,when){
 }
 /* what this card owes, split by the date each bill is actually due */
 function creditBuckets(A){
-  var by={}, logged=0;
+  var by={}, spend=0, paid=0;
   DB.txns.forEach(function(T){
-    if(T.acct!==A.id || T.kind==="inc") return;
+    if(T.kind==="pay" && T.to===A.id){ paid+=(+T.amt||0); return; }
+    if(T.acct!==A.id) return;
+    if(T.kind==="inc"){ paid+=(+T.amt||0); return; }   // money into a card pays it down
+    if(T.kind==="pay") return;
     var amt=(+T.amt||0)+(T.kind==="xfer"?(+T.fee||0):0);
     var due=creditDueFor(A,T.date); if(!due) return;
-    by[due]=(by[due]||0)+amt; logged+=amt;
+    by[due]=(by[due]||0)+amt; spend+=amt;
   });
-  var older=Math.round((+A.bal||0)-logged);
+  var older=Math.round((+A.bal||0)+paid-spend);
   if(older>0){
     var d0=onOrAfter(todayISO(),+A.dueDay||0);
     if(d0) by[d0]=(by[d0]||0)+older;
+  }
+  // payments clear the oldest bill first
+  var ks=Object.keys(by).sort();
+  for(var i=0;i<ks.length && paid>0.005;i++){
+    var take=Math.min(paid,by[ks[i]]);
+    by[ks[i]]-=take; paid-=take;
+    if(Math.round(by[ks[i]])<=0) delete by[ks[i]];
   }
   return by;
 }
 function commitmentsIn(a,b,noCredit){
   var out=[];
   DB.loans.forEach(function(L){ if(!L.paid && L.due>=a && L.due<=b) out.push({id:L.id,kind:"loan",who:(L.lender||L.loan||"Loan"),name:(L.lender?L.lender+" ":"")+L.loan,amt:+L.amt,date:L.due}); });
-  DB.fixed.forEach(function(F){ var d=dayInWindow(F.day,a,b); if(d) out.push({id:F.id,kind:"fixed",who:F.name,name:F.name,amt:+F.amt,date:d}); });
+  DB.fixed.forEach(function(F){ var d=dayInWindow(F.day,a,b); if(d && (F.done||[]).indexOf(d)===-1) out.push({id:F.id,kind:"fixed",who:F.name,name:F.name,amt:+F.amt,date:d}); });
   if(!noCredit) DB.accounts.forEach(function(A){
     if(A.type!=="credit") return;
     var by=creditBuckets(A);
@@ -447,6 +457,7 @@ function txnsOn(d){
   var s=0,n=0;
   DB.txns.forEach(function(T){
     if(T.date!==d) return;
+    if(T.kind==="pay"){ n++; return; }          // money out, but not spending
     if(T.kind==="xfer"){
       var f=+T.fee||0;
       if(f>0 && !isCredit(T.acct)){ n++; s+=f; }
@@ -582,12 +593,25 @@ function renderToday(){
   var list=filterTxns(recFilter);
   if(!list.length) h+='<div class="empty">Nothing logged'+(recFilter==="today"?" today":"")+'.</div>';
   else{
-    var tot=0; list.forEach(function(T){ if(T.kind==="xfer"||isCredit(T.acct)) return; tot += (T.kind==="inc"? -(+T.amt) : +T.amt); });
+    var tot=0; list.forEach(function(T){ if(T.kind==="xfer"||T.kind==="pay"||isCredit(T.acct)) return; tot += (T.kind==="inc"? -(+T.amt) : +T.amt); });
     list.slice(0,40).forEach(function(T){
-      var C=cat(T.cat), A=acct(T.acct), Xa=T.kind==="xfer"?acct(T.to):null;
-      h+='<button class="row" data-edit="'+T.id+'"><div class="g"><div class="t">'+esc(T.kind==="xfer"?"Transfer":(C?C.name:"Other"))+'</div>'
-        +'<div class="s">'+fmtD(T.date)+' · '+esc(A?A.name:"?")+(Xa?" → "+esc(Xa.name):(A&&A.type==="credit"?" (credit)":""))+(T.note?" · "+esc(T.note):"")+'</div></div>'
-        +'<div class="v num'+(T.kind==="inc"?" pos":"")+'" style="'+(T.kind==="xfer"?"color:var(--muted)":"")+'">'+(T.kind==="inc"?"+":"")+P(T.amt)+'</div><span class="chev">›</span></button>';
+      var C=cat(T.cat), A=acct(T.acct);
+      var dest=null;
+      if(T.kind==="xfer"||T.kind==="pay"){
+        dest = (String(T.to).indexOf("g:")===0) ? goalById(String(T.to).slice(2)) : acct(T.to);
+      }
+      var usedNote=false, title;
+      if(T.kind==="xfer") title="Transfer";
+      else if(T.kind==="pay"){ title=T.note||"Payment"; usedNote=!!T.note; }
+      else if(C) title=C.name;
+      else { title=T.note||(T.kind==="inc"?"Money in":"Other"); usedNote=!!T.note; }
+      var sub = fmtD(T.date)+' · '+esc(A?A.name:"?")
+              + (dest?" → "+esc(dest.name):(A&&A.type==="credit"?" (credit)":""))
+              + ((T.note && !usedNote)?" · "+esc(T.note):"");
+      h+='<button class="row" data-edit="'+T.id+'"><div class="g"><div class="t">'+esc(title)
+        +(T.kind==="pay"?' <span class="pill cr">payment</span>':'')+'</div>'
+        +'<div class="s">'+sub+'</div></div>'
+        +'<div class="v num'+(T.kind==="inc"?" pos":"")+'" style="'+((T.kind==="xfer"||T.kind==="pay")?"color:var(--muted)":"")+'">'+(T.kind==="inc"?"+":"")+P(T.amt)+'</div><span class="chev">›</span></button>';
     });
     if(list.length>40) h+='<div class="hint">Showing 40 of '+list.length+'.</div>';
     h+='<div class="row" style="border-top:2px solid var(--ink);border-bottom:none;padding-top:10px"><div class="g"><div class="t" style="font-weight:700">Net spent</div></div><div class="v num">'+P(tot)+'</div></div>';
@@ -780,10 +804,12 @@ function renderLoans(){
     var bw={};
     due.forEach(function(c){
       var k=c.who||c.name;
-      bw[k]=bw[k]||{n:0,s:0,first:"",ids:[],anyLoan:false};
+      bw[k]=bw[k]||{n:0,s:0,first:"",ids:[],credit:"",fixed:""};
       bw[k].n++; bw[k].s+=c.amt;
       if(!bw[k].first || c.date<bw[k].first) bw[k].first=c.date;
-      if(c.kind==="loan"){ bw[k].ids.push(c.id); bw[k].anyLoan=true; }
+      if(c.kind==="loan") bw[k].ids.push(c.id);
+      if(c.kind==="credit") bw[k].credit=String(c.id).split("@")[0];
+      if(c.kind==="fixed") bw[k].fixed=c.id;
     });
     var wk=Object.keys(bw).sort(function(a,b){ return bw[b].s-bw[a].s; });
     wk.forEach(function(k){
@@ -791,14 +817,15 @@ function renderLoans(){
       h+='<div class="row"><div class="g"><div class="t">'+esc(k)+'</div>'
         +'<div class="s">'+g.n+' payment'+(g.n===1?"":"s")+' · first '+fmtD(g.first)+'</div></div>'
         +'<div class="v num">'+P2(g.s)+'</div>'
-        +(g.anyLoan?'<button class="btn sec sm" data-paygrp="'+esc(g.ids.join(","))+'">Paid</button>':'')+'</div>';
+        +'<button class="btn sec sm" data-pay="'+esc(JSON.stringify({ids:g.ids,name:k,amt:g.s,credit:g.credit||"",fixed:g.fixed||"",date:g.first}))+'">Paid</button></div>';
     });
     h+='<div class="hint">One line per place you have to send money to. Tap Paid to tick off everything that lender is owed this cycle.</div>';
   }
   else {
     due.forEach(function(c){
       h+='<div class="row"><div class="g"><div class="t">'+esc(c.name)+(c.kind==="credit"?' <span class="pill cr">bill</span>':'')+'</div><div class="s">'+fmtD(c.date)+'</div></div>'
-        +'<div class="v num">'+P2(c.amt)+'</div>'+(c.kind==="loan"?'<button class="btn sec sm" data-toggle="'+c.id+'">Paid</button>':'')+'</div>';
+        +'<div class="v num">'+P2(c.amt)+'</div>'
+        +'<button class="btn sec sm" data-pay="'+esc(JSON.stringify({ids:c.kind==="loan"?[c.id]:[],name:c.name,amt:c.amt,credit:c.kind==="credit"?String(c.id).split("@")[0]:"",fixed:c.kind==="fixed"?c.id:"",date:c.date}))+'">Paid</button></div>';
     });
   }
   h+='<div class="row" style="border-top:2px solid var(--ink);border-bottom:none;padding-top:10px"><div class="g"><div class="t" style="font-weight:700">Total</div></div><div class="v num">'+P2(committedTotal())+'</div></div></div>';
@@ -842,19 +869,17 @@ function renderLoans(){
 
   v.innerHTML=h;
   $("#dueSeg").addEventListener("click",function(e){ var b=e.target.closest("button"); if(b){ dueGroup=b.dataset.g; renderLoans(); } });
-  v.querySelectorAll("[data-paygrp]").forEach(function(b){
+  v.querySelectorAll("[data-pay]").forEach(function(b){
     b.addEventListener("click",function(){
-      var ids=b.dataset.paygrp.split(","), n=0;
-      DB.loans.forEach(function(L){ if(ids.indexOf(L.id)>-1 && !L.paid){ L.paid=true; n++; } });
-      save(); renderLoans(); toast(n+" payment"+(n===1?"":"s")+" ticked off");
+      try{ openPayOff(JSON.parse(b.dataset.pay)); }catch(e){ toast("Could not open that"); }
     });
   });
   $("#loanSeg").addEventListener("click",function(e){ var b=e.target.closest("button"); if(b){ loanFilter=b.dataset.k; renderLoans(); } });
   v.querySelectorAll("[data-toggle]").forEach(function(b){
     b.addEventListener("click",function(){
-      var id=b.dataset.toggle;
-      for(var i=0;i<DB.loans.length;i++) if(DB.loans[i].id===id){ DB.loans[i].paid=!DB.loans[i].paid; break; }
-      save(); renderLoans(); toast("Updated");
+      var L=loanById(b.dataset.toggle); if(!L) return;
+      if(L.paid){ unpayLoans([L.id]); save(); renderLoans(); toast("Marked unpaid"); return; }
+      openPayOff({ids:[L.id],name:(L.lender?L.lender+" ":"")+L.loan,amt:+L.amt,credit:"",fixed:"",date:L.due});
     });
   });
   v.querySelectorAll("[data-open]").forEach(function(b){
@@ -1088,6 +1113,49 @@ function openLoanPlan(){
     return true;
   });
 }
+function loanById(id){ for(var i=0;i<DB.loans.length;i++) if(DB.loans[i].id===id) return DB.loans[i]; return null; }
+function fixedById(id){ for(var i=0;i<DB.fixed.length;i++) if(DB.fixed[i].id===id) return DB.fixed[i]; return null; }
+function openPayOff(o){
+  var accts=DB.accounts.map(function(a){ return [a.id,a.name+(a.type==="credit"?" (credit)":"")]; });
+  var pref=DB.settings.lastPayAcct||DB.accounts[0].id;
+  openSheet("Pay "+o.name,
+    fld("Amount","poAmt","number",Math.round((+o.amt||0)*100)/100)
+    +sel("Paid from","poAcct",accts,pref)
+    +fld("Date","poDate","date",todayISO())
+    +'<label class="chk" style="margin-top:6px"><input type="checkbox" id="poTick"><span>Just tick it off, I already logged this payment</span></label>'
+    +'<div class="hint">This takes the money out of the account you pick. It does not count against your daily number, because a loan or a bill is already held back before the daily number is worked out.</div>',
+    function(){
+      var just=$("#poTick").checked, a=+$("#poAmt").value||0;
+      if(!just){
+        if(!a){ toast("Enter an amount"); return false; }
+        var t={id:uid(),kind:"pay",amt:a,acct:$("#poAcct").value,to:o.credit||"",
+               date:$("#poDate").value||todayISO(),note:o.name,ref:(o.ids||[]).join(",")};
+        DB.txns.push(t); applyTxn(t,1);
+        DB.settings.lastPayAcct=t.acct;
+        (o.ids||[]).forEach(function(id){ var L=loanById(id); if(L) L.txn=t.id; });
+        if(o.fixed){ var F=fixedById(o.fixed); if(F){ F.done=(F.done||[]); F.done.push(o.date); F.txn=t.id; } }
+      } else if(o.fixed){
+        var F2=fixedById(o.fixed); if(F2){ F2.done=(F2.done||[]); F2.done.push(o.date); }
+      }
+      (o.ids||[]).forEach(function(id){ var L=loanById(id); if(L) L.paid=true; });
+      save();
+      toast(just?"Ticked off":("Paid "+P2(a)));
+      return true;
+    });
+}
+function unpayLoans(ids){
+  var drop={};
+  ids.forEach(function(id){
+    var L=loanById(id); if(!L) return;
+    L.paid=false;
+    if(L.txn){ drop[L.txn]=1; L.txn=null; }
+  });
+  Object.keys(drop).forEach(function(tid){
+    // one payment can cover several rows, so undo all of them together
+    DB.loans.forEach(function(L){ if(L.txn===tid){ L.paid=false; L.txn=null; } });
+    for(var i=0;i<DB.txns.length;i++) if(DB.txns[i].id===tid){ applyTxn(DB.txns[i],-1); DB.txns.splice(i,1); break; }
+  });
+}
 function openLoan(id){
   var L = id==="new" ? {id:uid(),lender:"",loan:"",amt:0,due:todayISO(),paid:false} : DB.loans.filter(function(x){return x.id===id;})[0];
   var body=fld("Lender","lLen","text",L.lender)+fld("Loan name","lNam","text",L.loan)
@@ -1313,12 +1381,16 @@ function biggestCash(){
   DB.accounts.forEach(function(a){ if(a.type!=="cash") return; if(!best||(+a.bal||0)>(+best.bal||0)) best=a; });
   return best;
 }
-var rollStart=null, rollEnd=null;
+var rollStart=null, rollEnd=null, rollPay=0, rollAcct="";
 function rollCycle(){
   var nc=nextCycle(DB.cycle,DB.settings.rule);
   var t=todayISO(), late = t>nc.start && t<=nc.end;
+  var cashA=DB.accounts.filter(function(a){ return a.type==="cash"; }).map(function(a){ return [a.id,a.name]; });
   var body=fld("Pay landed on","rcDate","date",(t<nc.start||t>nc.end)?nc.start:t)
     +fld("This cycle ends","rcEnd","date",nc.end)
+    +'<div class="two">'+fld("Amount received","rcPay","number",+DB.cycle.income||0)
+    +sel("Into","rcAcct",cashA.length?cashA:[["","no cash account"]],DB.settings.payAcct||(cashA[0]||[""])[0])+'</div>'
+    +'<div class="hint" style="margin-top:-2px">This logs the pay as money in, so you do not have to add it yourself. Put 0 if you would rather log it manually.</div>' 
     +'<div class="hint" style="margin-top:0">'
     +(late
       ? 'Payroll was due '+fmtD(nc.start)+' and it is already '+fmtD(t)+'. Start the cycle on the day the money actually landed, so the days before it stay in the cycle that just ended.'
@@ -1329,6 +1401,9 @@ function rollCycle(){
     rollStart = $("#rcDate").value || nc.start;
     rollEnd   = $("#rcEnd").value || nc.end;
     if(rollEnd<rollStart){ toast("The end date is before the start"); return false; }
+    rollPay   = +$("#rcPay").value||0;
+    rollAcct  = $("#rcAcct").value||"";
+    if(rollAcct) DB.settings.payAcct=rollAcct;
     setTimeout(doRollFlow,280);
     return true;
   });
@@ -1385,11 +1460,21 @@ function doRoll(quiet){
   var c=nextCycle(DB.cycle,DB.settings.rule);
   if(rollEnd) c.end=rollEnd;
   if(rollStart && rollStart<=c.end) c.start=rollStart;
-  rollStart=null; rollEnd=null;
+  if(rollPay>0) c.income=rollPay;
   DB.cycle=c; DB.cycle.adjust=0;
   DB.goals.forEach(function(g){ g.fundedCycle=null; });
+
+  var msg="Cycle now "+fmtD(DB.cycle.start)+" to "+fmtD(DB.cycle.end);
+  if(rollPay>0 && rollAcct && acct(rollAcct)){
+    var sal=DB.cats.filter(function(c){ return /salary|pay|income/i.test(c.name); })[0];
+    var t={id:uid(),kind:"inc",amt:rollPay,cat:sal?sal.id:"",acct:rollAcct,
+           date:DB.cycle.start,note:"Salary"};
+    DB.txns.push(t); applyTxn(t,1);
+    msg += ". "+P(rollPay)+" in to "+acct(rollAcct).name;
+  }
+  rollStart=null; rollEnd=null; rollPay=0; rollAcct="";
   save(); render();
-  toast("Cycle now "+fmtD(DB.cycle.start)+" to "+fmtD(DB.cycle.end));
+  toast(msg);
 }
 function openReserved(){
   openSheet("Set aside from past cycles",
@@ -1475,7 +1560,7 @@ function openTxn(id,preKind){
   var cats=DB.cats.map(function(c){ return [c.id,c.name]; });
   var accts=DB.accounts.map(function(a){ return [a.id,a.name+(a.type==="credit"?" (credit)":"")]; });
   var dests=accts.concat(DB.goals.map(function(g){ return ["g:"+g.id,g.name+" (savings)"]; }));
-  var kinds=[["exp","Money out"],["inc","Money in"],["xfer","Transfer"]];
+  var kinds=[["exp","Money out"],["inc","Money in"],["xfer","Transfer"],["pay","Loan or bill payment"]];
   if(!T) kinds.push(["borrow","Borrowed money"]);
   var body=sel("Type","txKind",kinds,T?(T.kind||"exp"):(preKind||"exp"))
     +fld("Amount","txAmt","number",T?T.amt:"")
@@ -1493,6 +1578,7 @@ function openTxn(id,preKind){
         +sel("How often","bwFreq",[["monthly","Monthly"],["semi","15th and end of month"]],"monthly")+'</div>'
       +'<div id="bwFee" class="hint"></div>'
     +'</div>'
+    +'<div id="txPayHint" class="hint" style="margin-top:-2px">Use this for loans, bills and card payments. It leaves the account but does not count as spending, because it was already held back.</div>'
     +fld("Date","txDate","date",T?T.date:todayISO())
     +fld("Note (optional)","txNote","text",T?T.note:"")
     +(T?'<div class="btnrow"><button class="btn dan" id="txDel">Delete this</button></div>':'');
@@ -1564,7 +1650,7 @@ function openTxn(id,preKind){
   }
   function syncKind(){
     var k=$("#txKind").value, bw=(k==="borrow");
-    $("#txCatWrap").style.display = (k==="xfer") ? "none" : "";
+    $("#txCatWrap").style.display = (k==="xfer"||k==="pay") ? "none" : "";
     $("#txToWrap").style.display  = (k==="xfer") ? "" : "none";
     $("#txBorrow").style.display  = bw ? "" : "none";
     if(bw){
@@ -1575,6 +1661,7 @@ function openTxn(id,preKind){
     }
     var lbl=$("#txAcct").parentNode.querySelector(".k");
     if(lbl) lbl.textContent = (k==="xfer") ? "From" : ((k==="inc"||bw) ? "Into" : "Paid from");
+    var ah=$("#txPayHint"); if(ah) ah.style.display = (k==="pay") ? "" : "none";
     var al=$("#txAmt").parentNode.querySelector(".k");
     if(al) al.textContent = bw ? "Amount you received" : "Amount";
   }
@@ -1696,6 +1783,14 @@ function openFix(id){
 /* ---------- transactions ---------- */
 function applyTxn(T,dir){
   var amt=+T.amt||0;
+  /* a payment toward a loan, a bill or a card.
+     It leaves an account, but it is NOT daily spending: it was already held back. */
+  if(T.kind==="pay"){
+    var S=acct(T.acct);
+    if(S) S.bal = (+S.bal||0) + dir*(S.type==="credit" ? amt : -amt);
+    if(T.to){ var C=acct(T.to); if(C && C.type==="credit") C.bal = (+C.bal||0) - dir*amt; }
+    return;
+  }
   if(T.kind==="xfer"){
     var fee=+T.fee||0;
     var F=acct(T.acct);

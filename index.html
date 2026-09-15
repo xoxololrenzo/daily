@@ -54,6 +54,10 @@ body{
 .vhead{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:12px 0 14px}
 .vhead h1{margin:0;font-size:22px;font-weight:700;letter-spacing:-.02em}
 .vhead .sub{font-size:12.5px;color:var(--muted);text-align:right}
+.vhead.stack{flex-direction:column;align-items:flex-start;gap:3px}
+.vhead.stack .sub{text-align:left;max-width:100%}
+.backrow{margin:0 0 14px}
+.backrow .btn{width:auto;padding:8px 14px;font-size:13.5px}
 .view{display:none} .view.on{display:block}
 
 /* ---- nav pinned to the very bottom ---- */
@@ -134,6 +138,9 @@ input[type=date]{min-width:0;-webkit-appearance:none;appearance:none}
 input:focus,select:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 @media (max-width:400px){ .two{grid-template-columns:1fr} }
+.calcrow{display:flex;align-items:center;gap:8px;margin:-6px 0 12px;flex-wrap:wrap}
+.calcrow .btn.sm{flex:none}
+.calcout{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
 .chk{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--rule);font-size:15px}
 .chk:last-child{border-bottom:none}
 .chk input{width:20px;height:20px;min-height:0;flex:none;accent-color:var(--accent)}
@@ -190,6 +197,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
   <div class="view" id="v-loans"></div>
   <div class="view" id="v-setup"></div>
   <div class="view" id="v-plan"></div>
+  <div class="view" id="v-sub"></div>
 </div>
 
 <button class="fab on" id="fab" aria-label="Add spending">+</button>
@@ -209,7 +217,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 <script>
 "use strict";
 /* ===== Daily v1.1 — everything stays in this browser. No personal data in this file. ===== */
-var VER="1.31", KEY="daily.v1";
+var VER="1.32", KEY="daily.v1";
 var $=function(s,r){ return (r||document).querySelector(s); };
 var el=function(t){ return document.createElement(t); };
 var ACCENTS=["#1D6FA3","#1F6B4F","#8A3E9E","#C2740A","#A8341E","#2B6DB0","#0E7C86","#B03A6B"];
@@ -327,6 +335,44 @@ function P(n){ var g=n<0; n=Math.abs(Math.round(n)); return (g?"-":"")+DB.settin
 function P2(n){
   var g=n<0; n=Math.abs(n);
   return (g?"-":"")+DB.settings.cur+n.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+/* "152+152+134" is a perfectly good way to enter three jeepney rides */
+function calc(s){
+  s=String(s==null?"":s).replace(/[^0-9+\-*/.() ]/g,"").trim();
+  if(!s) return null;
+  if(!/[+\-*/()]/.test(s)){ var n=parseFloat(s); return isNaN(n)?null:n; }
+  if(/[+\-*/]\s*$/.test(s)) s=s.replace(/[+\-*/]\s*$/,"");
+  try{
+    var v=Function('"use strict";return ('+s+')')();
+    return (typeof v==="number" && isFinite(v)) ? Math.round(v*100)/100 : null;
+  }catch(e){ return null; }
+}
+function fldCalc(k,id,val){
+  return '<label class="f"><span class="k">'+k+'</span>'
+    +'<input id="'+id+'" type="text" inputmode="decimal" autocomplete="off" value="'+(val==null?"":String(val))+'">'
+    +'</label>'
+    +'<div class="calcrow"><button type="button" class="btn sec sm" id="'+id+'Add">+ add another</button>'
+    +'<button type="button" class="btn sec sm" id="'+id+'Clr">clear</button>'
+    +'<span class="calcout" id="'+id+'Out"></span></div>';
+}
+/* wires the + button and the running total under an amount field */
+function wireCalc(id){
+  var inp=$("#"+id), add=$("#"+id+"Add"), clr=$("#"+id+"Clr"), out=$("#"+id+"Out");
+  if(!inp||!out) return;
+  function show(){
+    var raw=inp.value, v=calc(raw);
+    if(v==null || !/[+\-*/]/.test(raw)){ out.textContent = v!=null && raw ? "" : ""; return; }
+    out.innerHTML = "= <b>"+P2(v)+"</b>";
+  }
+  inp.addEventListener("input",show);
+  if(add) add.addEventListener("click",function(){
+    var raw=inp.value.trim();
+    if(!raw) return;
+    if(!/[0-9)]$/.test(raw)) return;
+    inp.value=raw+"+"; show(); inp.focus();
+  });
+  if(clr) clr.addEventListener("click",function(){ inp.value=""; show(); inp.focus(); });
+  show();
 }
 function esc(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 
@@ -519,11 +565,11 @@ var VIEW="today";
 var lastView=null;
 function render(){
   var keepY = (VIEW===lastView) ? (window.scrollY||window.pageYOffset||0) : 0;
-  ["today","money","cal","loans","setup","plan"].forEach(function(v){ $("#v-"+v).classList.toggle("on",v===VIEW); });
-  var navFor = (VIEW==="plan") ? "setup" : VIEW;
+  ["today","money","cal","loans","setup","plan","sub"].forEach(function(v){ $("#v-"+v).classList.toggle("on",v===VIEW); });
+  var navFor = (VIEW==="plan"||VIEW==="sub") ? "setup" : VIEW;
   document.querySelectorAll("nav button").forEach(function(b){ b.setAttribute("aria-current", b.dataset.v===navFor?"true":"false"); });
   $("#fab").classList.toggle("on", VIEW==="today"||VIEW==="money");
-  ({today:renderToday,money:renderMoney,cal:renderCal,loans:renderLoans,setup:renderSetup,plan:renderPlanView})[VIEW]();
+  ({today:renderToday,money:renderMoney,cal:renderCal,loans:renderLoans,setup:renderSetup,plan:renderPlanView,sub:renderSub})[VIEW]();
   lastView=VIEW;
   window.scrollTo(0,keepY);
 }
@@ -611,10 +657,10 @@ function renderToday(){
       h+='<button class="row" data-edit="'+T.id+'"><div class="g"><div class="t">'+esc(title)
         +(T.kind==="pay"?' <span class="pill cr">payment</span>':'')+'</div>'
         +'<div class="s">'+sub+'</div></div>'
-        +'<div class="v num'+(T.kind==="inc"?" pos":"")+'" style="'+((T.kind==="xfer"||T.kind==="pay")?"color:var(--muted)":"")+'">'+(T.kind==="inc"?"+":"")+P(T.amt)+'</div><span class="chev">›</span></button>';
+        +'<div class="v num'+(T.kind==="inc"?" pos":"")+'" style="'+((T.kind==="xfer"||T.kind==="pay")?"color:var(--muted)":"")+'">'+(T.kind==="inc"?"+":"")+P2(T.amt)+'</div><span class="chev">›</span></button>';
     });
     if(list.length>40) h+='<div class="hint">Showing 40 of '+list.length+'.</div>';
-    h+='<div class="row" style="border-top:2px solid var(--ink);border-bottom:none;padding-top:10px"><div class="g"><div class="t" style="font-weight:700">Net spent</div></div><div class="v num">'+P(tot)+'</div></div>';
+    h+='<div class="row" style="border-top:2px solid var(--ink);border-bottom:none;padding-top:10px"><div class="g"><div class="t" style="font-weight:700">Net spent</div></div><div class="v num">'+P2(tot)+'</div></div>';
   }
   h+='</div>';
 
@@ -758,9 +804,12 @@ function renderCal(){
 
   h+='<div class="card"><h2>Pace, week by week</h2>'
     +'<div class="hint" style="margin-top:0;margin-bottom:10px">Finished weeks show spend only. Current and later weeks show spend against what is left.</div>';
-  var s=DB.cycle.start,wi=1;
-  while(s<=DB.cycle.end){
-    var e=addD(s,6); if(e>DB.cycle.end) e=DB.cycle.end;
+  var back=(parse(DB.cycle.start).getDay()+6)%7;      // Monday is the start of a week
+  var w=addD(DB.cycle.start,-back), wi=1;
+  while(w<=DB.cycle.end){
+    var wEnd=addD(w,6);
+    var s = w<DB.cycle.start ? DB.cycle.start : w;
+    var e = wEnd>DB.cycle.end ? DB.cycle.end : wEnd;
     var sp=spentRange(s,e), gone = e < todayISO();
     var cap=per*(between(s,e)+1)+officeDaysIn(s,e)*(+DB.settings.farePerDay||0);
     var p = cap>0?Math.min(100,sp/cap*100):0;
@@ -773,8 +822,9 @@ function renderCal(){
       +'</div>'
       +(gone ? '' : '<div class="bar" style="margin:7px 0 0;height:5px"><i class="'+(sp>cap?"hot":"gd")+'" style="width:'+p+'%"></i></div>')
       +'</div>';
-    s=addD(e,1); wi++;
+    w=addD(wEnd,1); wi++;
   }
+  h+='<div class="hint">Weeks run Monday to Sunday. The first and last are shorter where the cutoff starts or ends mid-week.</div>';
   h+='</div>';
   v.innerHTML=h;
   v.querySelectorAll("[data-mo]").forEach(function(b){
@@ -946,8 +996,8 @@ function prow(id,k,val,sub,set){
 }
 function renderPlanView(){
   var v=$("#v-plan"), p=planFor(planOff), h="";
-  h+='<div class="vhead"><h1>Plan a cutoff</h1><span class="sub">a sandbox \u2014 nothing here touches your real balances</span></div>';
-  h+='<div class="btnrow" style="margin-top:0"><button class="btn sec" id="planBack">\u2039 Back to setup</button></div>';
+  h+='<div class="vhead stack"><h1>Plan a cutoff</h1><span class="sub">A sandbox. Nothing here touches your real balances.</span></div>';
+  h+='<div class="btnrow backrow"><button class="btn sec" id="planBack">\u2039 Setup</button></div>';
 
   h+='<div class="card"><div class="seg" id="planSeg" style="justify-content:space-between;margin-bottom:14px">'
     +'<button data-p="-1"'+(planOff<=1?" disabled":"")+'>\u2039</button>'
@@ -1120,13 +1170,13 @@ function openPayOff(o){
   var accts=DB.accounts.map(function(a){ return [a.id,a.name+(a.type==="credit"?" (credit)":"")]; });
   var pref=DB.settings.lastPayAcct||DB.accounts[0].id;
   openSheet("Pay "+o.name,
-    fld("Amount","poAmt","number",Math.round((+o.amt||0)*100)/100)
+    fldCalc("Amount","poAmt",Math.round((+o.amt||0)*100)/100)
     +sel("Paid from","poAcct",accts,pref)
     +fld("Date","poDate","date",todayISO())
     +'<label class="chk" style="margin-top:6px"><input type="checkbox" id="poTick"><span>Just tick it off, I already logged this payment</span></label>'
     +'<div class="hint">This takes the money out of the account you pick. It does not count against your daily number, because a loan or a bill is already held back before the daily number is worked out.</div>',
     function(){
-      var just=$("#poTick").checked, a=+$("#poAmt").value||0;
+      var just=$("#poTick").checked, a=calc($("#poAmt").value)||0;
       if(!just){
         if(!a){ toast("Enter an amount"); return false; }
         var t={id:uid(),kind:"pay",amt:a,acct:$("#poAcct").value,to:o.credit||"",
@@ -1143,6 +1193,7 @@ function openPayOff(o){
       toast(just?"Ticked off":("Paid "+P2(a)));
       return true;
     });
+  wireCalc("poAmt");
 }
 function unpayLoans(ids){
   var drop={};
@@ -1179,6 +1230,12 @@ function renderSetup(){
   var v=$("#v-setup"),h="",i;
   h+='<div class="vhead"><h1>Setup</h1><span class="sub">v'+VER+'</span></div>';
 
+  if(undoLabel()){
+    h+='<div class="card"><h2>Undo</h2>'
+      +'<div class="btnrow" style="margin-top:0"><button class="btn sec" id="undoBtn">Undo: '+esc(undoLabel())+'</button></div>'
+      +'<div class="hint">Puts everything back to just before that. One step only, and it goes away once used.</div></div>';
+  }
+
   h+='<div class="card"><h2>This cycle</h2>'
     +fld("Starts","cs","date",DB.cycle.start)
     +fld("Ends","ce","date",DB.cycle.end)
@@ -1202,30 +1259,18 @@ function renderSetup(){
     +'<div class="row" style="border-top:2px solid var(--ink);border-bottom:none;padding-top:11px"><div class="g"><div class="t" style="font-weight:700">Free to spend</div><div class="s">over '+daysLeft()+' days = '+P(perDayBase())+' a day</div></div><div class="v num" style="font-size:18px">'+P(freeToSpend())+'</div></div>'
     +'<div class="hint">Tap a line to change it.</div></div>';
 
-  h+='<div class="card"><h2>Envelopes and accounts</h2>';
-  DB.envelopes.forEach(function(E){
-    h+='<div style="padding:11px 0;border-bottom:1px solid var(--rule)">'
-      +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'
-      +'<div style="font-weight:600">'+esc(E.name)+'</div>'
-      +'<div style="display:flex;gap:6px;align-items:center"><span class="num" style="font-weight:700">'+P(envTotal(E))+'</span>'
-      +'<button class="btn sec sm" data-env="'+E.id+'">Edit</button></div></div>';
-    if(!(E.accts||[]).length) h+='<div class="hint" style="margin-top:5px">No accounts yet.</div>';
-    (E.accts||[]).forEach(function(id){
-      var A=acct(id); if(!A) return;
-      h+='<div class="sub-acct"><span>'+esc(A.name)+'</span><span class="num">'+P(+A.bal||0)+'</span></div>';
-    });
-    h+='</div>';
+  h+='<div class="card"><h2>More</h2>';
+  SUBS.forEach(function(S){
+    h+='<button class="row" data-sub="'+S[0]+'"><div class="g"><div class="t">'+esc(S[1])+'</div>'
+      +'<div class="s">'+esc(S[2]())+'</div></div><span class="chev">\u203a</span></button>';
   });
-  h+='<div class="btnrow"><button class="btn sec" data-env="new">Add envelope</button></div>';
-  h+='<h2 style="margin-top:18px">All accounts</h2>';
-  DB.accounts.forEach(function(A){
-    h+='<button class="row" data-acct="'+A.id+'"><div class="g"><div class="t">'+esc(A.name)+' '+(A.type==="credit"?'<span class="pill cr">credit</span>':'')+'</div>'
-      +'<div class="s">'+(A.type==="credit"?("statement "+(A.stmtDay||"?")+", due "+(A.dueDay||"?")):"cash or debit")+'</div></div>'
-      +'<div class="v num">'+P(+A.bal||0)+'</div><span class="chev">›</span></button>';
-  });
-  h+='<div class="btnrow"><button class="btn sec" data-acct="new">Add account</button></div>'
-    +'<div class="hint">Envelopes and accounts now live in the Envelopes tab.</div></div>';
+  h+='<div class="hint">Envelopes and accounts live in the Envelopes tab, under Manage.</div></div>';
 
+  v.innerHTML=h;
+  wireSetup(v);
+}
+function secQuick(){
+  var h="",i;
   h+='<div class="card"><h2>Quick amounts</h2>';
   DB.cats.forEach(function(C){
     h+='<button class="row" data-cat="'+C.id+'"><div class="g"><div class="t">'+esc(C.name)+'</div><div class="s">'+esc((env(C.env)||{}).name||"no envelope")+'</div></div>'
@@ -1233,6 +1278,10 @@ function renderSetup(){
   });
   h+='<div class="btnrow"><button class="btn sec" data-cat="new">Add category</button></div></div>';
 
+  return h;
+}
+function secSavings(){
+  var h="",i;
   h+='<div class="card"><h2>Savings</h2>';
   if(!DB.goals.length) h+='<div class="empty">No goals yet.</div>';
   DB.goals.forEach(function(G){
@@ -1249,6 +1298,10 @@ function renderSetup(){
   });
   h+='<div class="btnrow"><button class="btn sec" data-goal="new">Add goal</button></div></div>';
 
+  return h;
+}
+function secBills(){
+  var h="",i;
   h+='<div class="card"><h2>Fixed bills</h2>';
   if(!DB.fixed.length) h+='<div class="empty">None yet. Rent, a car payment, a subscription.</div>';
   DB.fixed.forEach(function(F){
@@ -1256,6 +1309,10 @@ function renderSetup(){
   });
   h+='<div class="btnrow"><button class="btn sec" data-fix="new">Add bill</button></div></div>';
 
+  return h;
+}
+function secOffice(){
+  var h="",i;
   h+='<div class="card"><h2>Office days</h2>'
     +fld("Fare per office day","fare","number",DB.settings.farePerDay||0)
     +'<div style="font-size:12px;font-weight:700;color:var(--muted);margin:14px 0 6px;text-transform:uppercase;letter-spacing:.04em">Your usual days</div>'
@@ -1266,21 +1323,49 @@ function renderSetup(){
     +'<div class="hint" style="margin:0 0 10px">Tap the days you actually go in. Fare is held back for those only.</div>'
     +'<div class="cal" id="officeCal">'+officeGrid()+'</div></div>';
 
+  return h;
+}
+function secLook(){
+  var h="",i;
   h+='<div class="card"><h2>Look</h2><div class="btnrow" style="margin-top:0" id="accents">';
   ACCENTS.forEach(function(c){ h+='<button class="sw" style="background:'+c+'" data-acc="'+c+'" aria-pressed="'+(DB.settings.accent===c)+'" aria-label="accent"></button>'; });
   h+='</div><div class="btnrow"><button class="btn sec" id="themeBtn">Theme: '+(DB.settings.theme||"auto")+'</button></div></div>';
 
+  return h;
+}
+function secData(){
+  var h="",i;
   h+='<div class="card"><h2>Your data</h2>'
     +'<div class="hint" style="margin-top:0;margin-bottom:12px">Stored in this browser only. Export before big changes. Never put card numbers, PINs or passwords in here.</div>'
     +'<div class="btnrow" style="margin-top:0"><button class="btn sec" id="expBtn">Export backup</button><button class="btn sec" id="impBtn">Import</button></div>'
     +'<input type="file" id="impFile" accept="application/json,.json" style="display:none">'
-    +(undoLabel()?'<div class="btnrow"><button class="btn sec" id="undoBtn">Undo: '+esc(undoLabel())+'</button></div><div class="hint" style="margin-top:6px">Puts everything back to just before that. One step only.</div>':'')
     +'<div class="btnrow"><button class="btn sec" id="updBtn">Check for app update</button></div>'+'<div class="btnrow"><button class="btn dan" id="wipeBtn">Erase everything</button></div>'
     +'<div class="hint">Daily v'+VER+' · '+DB.txns.length+' logged · '+DB.loans.length+' scheduled payments</div></div>';
 
+  return h;
+}
+var SUB=null;
+var SUBS=[
+  ["quick","Quick amounts", function(){ return DB.cats.length+" categories"; }, secQuick],
+  ["savings","Savings",     function(){ return DB.goals.length+" goal"+(DB.goals.length===1?"":"s"); }, secSavings],
+  ["bills","Fixed bills",   function(){ return DB.fixed.length+" bill"+(DB.fixed.length===1?"":"s"); }, secBills],
+  ["office","Office days",  function(){ return P(DB.settings.farePerDay)+" a day"; }, secOffice],
+  ["look","Look",           function(){ return (DB.settings.theme||"auto")+" theme"; }, secLook],
+  ["data","Your data",      function(){ return DB.txns.length+" logged"; }, secData]
+];
+function subByKey(k){ for(var i=0;i<SUBS.length;i++) if(SUBS[i][0]===k) return SUBS[i]; return null; }
+function openSub(k){ SUB=k; VIEW="sub"; render(); window.scrollTo(0,0); }
+function renderSub(){
+  var v=$("#v-sub"), S=subByKey(SUB);
+  if(!S){ VIEW="setup"; render(); return; }
+  var h='<div class="vhead stack"><h1>'+esc(S[1])+'</h1><span class="sub">'+esc(S[2]())+'</span></div>'
+    +'<div class="btnrow backrow"><button class="btn sec" id="subBack">‹ Setup</button></div>'
+    + S[3]();
   v.innerHTML=h;
+  $("#subBack").addEventListener("click",function(){ VIEW="setup"; SUB=null; render(); window.scrollTo(0,0); });
   wireSetup(v);
 }
+function reSetup(){ if(VIEW==="sub") renderSub(); else renderSetup(); }
 function erow(k,val,go,sub){
   return '<button class="row" data-go="'+go+'"><div class="g"><div class="t">'+k+'</div><div class="s">'+sub+'</div></div>'
        + '<div class="v num'+(val<0?" neg":(val>0?" pos":""))+'">'+P(val)+'</div><span class="chev">›</span></button>';
@@ -1296,6 +1381,10 @@ function officeGrid(){
   return h;
 }
 function wireSetup(v){
+  function on(id,ev,fn){ var n=$("#"+id); if(n) n.addEventListener(ev,fn); }
+  v.querySelectorAll("[data-sub]").forEach(function(b){
+    b.addEventListener("click",function(){ openSub(b.dataset.sub); });
+  });
   function autoCycle(){
     DB.cycle.start=$("#cs").value||DB.cycle.start;
     DB.cycle.end=$("#ce").value||DB.cycle.end;
@@ -1313,16 +1402,16 @@ function wireSetup(v){
     DB.cycle.start=c.start; DB.cycle.end=c.end;
     save(); render(); toast("Cycle now "+fmtD(c.start)+" to "+fmtD(c.end));
   });
-  $("#planBtn").addEventListener("click",function(){ VIEW="plan"; render(); window.scrollTo(0,0); });
-  $("#newCycle").addEventListener("click",rollCycle);
-  $("#fare").addEventListener("change",function(){ DB.settings.farePerDay=+this.value||0; save(); });
-  $("#dowSeg").addEventListener("click",function(e){
+  on("planBtn","click",function(){ VIEW="plan"; render(); window.scrollTo(0,0); });
+  on("newCycle","click",rollCycle);
+  on("fare","change",function(){ DB.settings.farePerDay=+this.value||0; save(); });
+  on("dowSeg","click",function(e){
     var b=e.target.closest("button"); if(!b) return;
     var i=+b.dataset.dow, a=officeDow().slice(), k=a.indexOf(i);
     if(k>-1) a.splice(k,1); else { a.push(i); a.sort(); }
-    DB.settings.officeDow=a; save(); renderSetup();
+    DB.settings.officeDow=a; save(); reSetup();
   });
-  $("#dowFill").addEventListener("click",function(){
+  on("dowFill","click",function(){
     var dow=officeDow();
     if(!dow.length){ toast("Pick your usual days first"); return; }
     var d=parse(DB.cycle.start), e=parse(DB.cycle.end), n=0, guard=0;
@@ -1331,13 +1420,13 @@ function wireSetup(v){
       if(dow.indexOf(d.getDay())>-1 && DB.office.indexOf(s)===-1){ DB.office.push(s); n++; }
       d.setDate(d.getDate()+1);
     }
-    save(); renderSetup(); toast(n+" day"+(n===1?"":"s")+" ticked");
+    save(); reSetup(); toast(n+" day"+(n===1?"":"s")+" ticked");
   });
-  $("#officeCal").addEventListener("click",function(e){
+  on("officeCal","click",function(e){
     var b=e.target.closest("[data-off]"); if(!b) return;
     var ds=b.dataset.off,i=DB.office.indexOf(ds);
     if(i>-1) DB.office.splice(i,1); else DB.office.push(ds);
-    save(); renderSetup();
+    save(); reSetup();
   });
   v.querySelectorAll("[data-go]").forEach(function(b){
     b.addEventListener("click",function(){
@@ -1356,21 +1445,21 @@ function wireSetup(v){
   v.querySelectorAll("[data-fix]").forEach(function(b){ b.addEventListener("click",function(){ openFix(b.dataset.fix); }); });
   v.querySelectorAll("[data-fund]").forEach(function(b){ b.addEventListener("click",function(){ fundGoal(b.dataset.fund); }); });
   v.querySelectorAll("[data-take]").forEach(function(b){ b.addEventListener("click",function(){ takeGoal(b.dataset.take); }); });
-  $("#accents").addEventListener("click",function(e){
+  on("accents","click",function(e){
     var b=e.target.closest("[data-acc]"); if(!b) return;
-    DB.settings.accent=b.dataset.acc; applyTheme(); save(); renderSetup();
+    DB.settings.accent=b.dataset.acc; applyTheme(); save(); reSetup();
   });
-  $("#themeBtn").addEventListener("click",function(){
+  on("themeBtn","click",function(){
     var t=DB.settings.theme||"auto";
     DB.settings.theme = t==="auto"?"light":(t==="light"?"dark":"auto");
-    applyTheme(); save(); renderSetup();
+    applyTheme(); save(); reSetup();
   });
   var ub=$("#undoBtn"); if(ub) ub.addEventListener("click",undoLast);
-  $("#updBtn").addEventListener("click",forceUpdate);
-  $("#expBtn").addEventListener("click",doExport);
-  $("#impBtn").addEventListener("click",function(){ $("#impFile").click(); });
-  $("#impFile").addEventListener("change",doImport);
-  $("#wipeBtn").addEventListener("click",function(){
+  on("updBtn","click",forceUpdate);
+  on("expBtn","click",doExport);
+  on("impBtn","click",function(){ $("#impFile").click(); });
+  on("impFile","change",doImport);
+  on("wipeBtn","click",function(){
     if(!confirm("Erase everything on this device? Export a backup first.")) return;
     if(!confirm("Really erase? This cannot be undone.")) return;
     try{ localStorage.removeItem(KEY); }catch(e){}
@@ -1514,6 +1603,7 @@ function closeSheet(){
 function fitSheet(){
   var vv=window.visualViewport; if(!vv) return;
   var s=$("#sheet"); if(!s.classList.contains("on")) return;
+  if(vv.scale && vv.scale>1.01){ s.style.bottom=""; s.style.maxHeight=""; return; }
   var kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
   s.style.bottom = kb+"px";
   s.style.maxHeight = Math.max(220, Math.round(vv.height-36))+"px";
@@ -1527,7 +1617,14 @@ document.addEventListener("focusin",function(e){
   if(!e.target||!e.target.closest||!e.target.closest("#sheet")) return;
   setTimeout(function(){
     fitSheet();
-    try{ e.target.scrollIntoView({block:"center"}); }catch(_){}
+    // scroll inside the sheet only, never the page: moving the page is what
+    // makes iOS rescale the whole thing
+    try{
+      var body=s.querySelector(".sbody"); if(!body) return;
+      var br=body.getBoundingClientRect(), tr=e.target.getBoundingClientRect();
+      var want=tr.top-br.top+body.scrollTop-(br.height/2)+(tr.height/2);
+      body.scrollTop=Math.max(0,want);
+    }catch(_){}
   },140);
 });
 window.addEventListener("error",function(e){
@@ -1564,7 +1661,7 @@ function openTxn(id,preKind){
   var kinds=[["exp","Money out"],["inc","Money in"],["xfer","Transfer"],["pay","Loan or bill payment"]];
   if(!T) kinds.push(["borrow","Borrowed money"]);
   var body=sel("Type","txKind",kinds,T?(T.kind||"exp"):(preKind||"exp"))
-    +fld("Amount","txAmt","number",T?T.amt:"")
+    +fldCalc("Amount","txAmt",T?T.amt:"")
     +'<div id="txCatWrap">'+sel("What","txCat",cats,(T&&T.cat)?T.cat:DB.cats[0].id)+'</div>'
     +sel("From","txAcct",accts,(T&&T.acct)?T.acct:DB.accounts[0].id)
     +'<div id="txToWrap">'+sel("To","txTo",dests,(T&&T.to)?T.to:(DB.accounts[1]||DB.accounts[0]).id)
@@ -1585,7 +1682,7 @@ function openTxn(id,preKind){
     +(T?'<div class="btnrow"><button class="btn dan" id="txDel">Delete this</button></div>':'');
 
   openSheet(T?"Edit entry":(preKind==="xfer"?"Move money":"Add"),body,function(){
-    var a=+$("#txAmt").value; if(!a){ toast("Enter an amount"); return false; }
+    var a=calc($("#txAmt").value); if(!a){ toast("Enter an amount"); return false; }
     var k=T?$("#txKind").value:$("#txKind").value;
 
     if(!T && k==="borrow"){
@@ -1635,7 +1732,7 @@ function openTxn(id,preKind){
   });
 
   function feeLine(){
-    var got=+$("#txAmt").value||0, owed=0;
+    var got=calc($("#txAmt").value)||0, owed=0;
     if($("#bwMode").value==="one") owed=+$("#bwTotal").value||0;
     else {
       var n=+$("#bwN").value||0, each=+$("#bwEach").value||0, last=+$("#bwLast").value||0;
@@ -1668,8 +1765,9 @@ function openTxn(id,preKind){
   }
   $("#txKind").addEventListener("change",syncKind);
   ["bwMode","bwTotal","bwN","bwEach","bwLast","txAmt"].forEach(function(x){
-    var n=$("#"+x); if(n) n.addEventListener("change",syncKind);
+    var n=$("#"+x); if(n){ n.addEventListener("change",syncKind); n.addEventListener("input",syncKind); }
   });
+  wireCalc("txAmt");
   syncKind();
   if(T){ var d2=$("#txDel"); if(d2) d2.addEventListener("click",function(){ closeSheet(); delTxn(T.id); }); }
 }

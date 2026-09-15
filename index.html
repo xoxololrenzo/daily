@@ -208,7 +208,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 <script>
 "use strict";
 /* ===== Daily v1.1 — everything stays in this browser. No personal data in this file. ===== */
-var VER="1.24", KEY="daily.v1";
+var VER="1.27", KEY="daily.v1";
 var $=function(s,r){ return (r||document).querySelector(s); };
 var el=function(t){ return document.createElement(t); };
 var ACCENTS=["#1D6FA3","#1F6B4F","#8A3E9E","#C2740A","#A8341E","#2B6DB0","#0E7C86","#B03A6B"];
@@ -264,12 +264,33 @@ function defaultCycle(t){
   if(day<lastDay(y,m)) return {start:iso(new Date(y,m,15)),end:iso(new Date(y,m,lastDay(y,m)-1)),income:0,adjust:0};
   return {start:iso(new Date(y,m,lastDay(y,m))),end:iso(new Date(y,m+1,14)),income:0,adjust:0};
 }
+/* the 15th and the last day of the month are the anchors; a cycle runs
+   from one anchor to the day before the next, whatever the stored end says */
+function semiAnchorAfter(s){
+  var d=parse(s), y=d.getFullYear(), m=d.getMonth(), dd=d.getDate();
+  if(dd<15) return iso(new Date(y,m,15));
+  if(dd<lastDay(y,m)) return iso(new Date(y,m,lastDay(y,m)));
+  return iso(new Date(y,m+1,15));
+}
+function semiCycleFor(s){
+  var d=parse(s), y=d.getFullYear(), m=d.getMonth(), dd=d.getDate();
+  var st = (dd<15) ? iso(new Date(y,m-1,lastDay(y,m-1)))
+         : (dd<lastDay(y,m) ? iso(new Date(y,m,15)) : iso(new Date(y,m,lastDay(y,m))));
+  return {start:st, end:addD(semiAnchorAfter(st),-1)};
+}
+function cycleLooksOff(){
+  if(DB.settings.rule!=="semimonthly") return null;
+  var c=semiCycleFor(DB.cycle.start);
+  return (c.start===DB.cycle.start && c.end===DB.cycle.end) ? null : c;
+}
 function nextCycle(c,rule){
-  var s=addD(c.end,1),d=parse(s),y=d.getFullYear(),m=d.getMonth();
-  if(rule==="fortnightly") return {start:s,end:addD(s,13),income:c.income,adjust:0};
-  if(rule==="monthly")     return {start:s,end:iso(new Date(y,m+1,d.getDate()-1)),income:c.income,adjust:0};
-  var e=(d.getDate()<lastDay(y,m)) ? iso(new Date(y,m,lastDay(y,m)-1)) : iso(new Date(y,m+1,14));
-  return {start:s,end:e,income:c.income,adjust:0};
+  if(rule==="fortnightly"){ var s=addD(c.end,1); return {start:s,end:addD(s,13),income:c.income,adjust:0}; }
+  if(rule==="monthly"){ var s2=addD(c.end,1), d2=parse(s2);
+    return {start:s2,end:iso(new Date(d2.getFullYear(),d2.getMonth()+1,d2.getDate()-1)),income:c.income,adjust:0}; }
+  if(rule==="custom"){ var s3=addD(c.end,1);
+    return {start:s3,end:addD(s3,Math.max(0,between(c.start,c.end))),income:c.income,adjust:0}; }
+  var st=semiAnchorAfter(c.start);
+  return {start:st, end:addD(semiAnchorAfter(st),-1), income:c.income, adjust:0};
 }
 
 /* ---- store ---- */
@@ -302,6 +323,10 @@ function migrate(){
 function save(){ try{ localStorage.setItem(KEY,JSON.stringify(DB)); }catch(e){ toast("Could not save. Storage may be blocked."); } }
 function uid(){ return Math.random().toString(36).slice(2,9); }
 function P(n){ var g=n<0; n=Math.abs(Math.round(n)); return (g?"-":"")+DB.settings.cur+n.toLocaleString("en-US"); }
+function P2(n){
+  var g=n<0; n=Math.abs(n);
+  return (g?"-":"")+DB.settings.cur+n.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+}
 function esc(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 
 /* ---- lookups ---- */
@@ -363,15 +388,15 @@ function creditBuckets(A){
 }
 function commitmentsIn(a,b,noCredit){
   var out=[];
-  DB.loans.forEach(function(L){ if(!L.paid && L.due>=a && L.due<=b) out.push({id:L.id,kind:"loan",name:(L.lender?L.lender+" ":"")+L.loan,amt:+L.amt,date:L.due}); });
-  DB.fixed.forEach(function(F){ var d=dayInWindow(F.day,a,b); if(d) out.push({id:F.id,kind:"fixed",name:F.name,amt:+F.amt,date:d}); });
+  DB.loans.forEach(function(L){ if(!L.paid && L.due>=a && L.due<=b) out.push({id:L.id,kind:"loan",who:(L.lender||L.loan||"Loan"),name:(L.lender?L.lender+" ":"")+L.loan,amt:+L.amt,date:L.due}); });
+  DB.fixed.forEach(function(F){ var d=dayInWindow(F.day,a,b); if(d) out.push({id:F.id,kind:"fixed",who:F.name,name:F.name,amt:+F.amt,date:d}); });
   if(!noCredit) DB.accounts.forEach(function(A){
     if(A.type!=="credit") return;
     var by=creditBuckets(A);
     Object.keys(by).forEach(function(due){
       if(due<a || due>b) return;
       if(Math.round(by[due])<=0) return;
-      out.push({id:A.id+"@"+due,kind:"credit",name:A.name+" bill",amt:by[due],date:due});
+      out.push({id:A.id+"@"+due,kind:"credit",who:A.name,name:A.name+" bill",amt:by[due],date:due});
     });
   });
   out.sort(function(x,y){ return x.date<y.date?-1:1; });
@@ -733,25 +758,49 @@ function renderCal(){
 
 /* ---------- LOANS ---------- */
 var loanFilter="due";
+var dueGroup="who";
+function sg3(k,label){ return '<button data-g="'+k+'" aria-pressed="'+(dueGroup===k)+'">'+label+'</button>'; }
 function renderLoans(){
   var v=$("#v-loans"),h="",paid=0,left=0,last=null;
   DB.loans.forEach(function(L){ if(L.paid) paid+=+L.amt; else { left+=+L.amt; if(!last||L.due>last) last=L.due; } });
   var total=paid+left, pct= total? paid/total*100:0;
 
   h+='<div class="vhead"><h1>Loans</h1><span class="sub">'+DB.loans.filter(function(l){return !l.paid;}).length+' payments left</span></div>';
-  h+='<div class="hero"><div class="lbl">Still to pay</div><div class="big num">'+P(left)+'</div>'
+  h+='<div class="hero"><div class="lbl">Still to pay</div><div class="big num">'+P2(left)+'</div>'
     +'<div class="note">'+(last?("Last payment "+fmtD(last)+" "+parse(last).getFullYear()):"Nothing scheduled")+'</div>'
     +'<div class="bar"><i class="gd" style="width:'+pct+'%"></i></div>'
-    +'<div class="split"><span class="num">'+P(paid)+' paid</span><span class="num">'+Math.round(pct)+'% done</span></div></div>';
+    +'<div class="split"><span class="num">'+P2(paid)+' paid</span><span class="num">'+Math.round(pct)+'% done</span></div></div>';
 
   var due=commitments();
-  h+='<div class="card"><h2>Due this cycle</h2>';
+  h+='<div class="card"><h2>Due this cycle</h2>'
+    +'<div class="seg" id="dueSeg">'+sg3("who","By lender")+sg3("date","By date")+'</div>';
   if(!due.length) h+='<div class="empty">Nothing due between '+fmtD(DB.cycle.start)+' and '+fmtD(DB.cycle.end)+'.</div>';
-  due.forEach(function(c){
-    h+='<div class="row"><div class="g"><div class="t">'+esc(c.name)+(c.kind==="credit"?' <span class="pill cr">bill</span>':'')+'</div><div class="s">'+fmtD(c.date)+'</div></div>'
-      +'<div class="v num">'+P(c.amt)+'</div>'+(c.kind==="loan"?'<button class="btn sec sm" data-toggle="'+c.id+'">Paid</button>':'')+'</div>';
-  });
-  h+='<div class="row" style="border-top:2px solid var(--ink);border-bottom:none;padding-top:10px"><div class="g"><div class="t" style="font-weight:700">Total</div></div><div class="v num">'+P(committedTotal())+'</div></div></div>';
+  else if(dueGroup==="who"){
+    var bw={};
+    due.forEach(function(c){
+      var k=c.who||c.name;
+      bw[k]=bw[k]||{n:0,s:0,first:"",ids:[],anyLoan:false};
+      bw[k].n++; bw[k].s+=c.amt;
+      if(!bw[k].first || c.date<bw[k].first) bw[k].first=c.date;
+      if(c.kind==="loan"){ bw[k].ids.push(c.id); bw[k].anyLoan=true; }
+    });
+    var wk=Object.keys(bw).sort(function(a,b){ return bw[b].s-bw[a].s; });
+    wk.forEach(function(k){
+      var g=bw[k];
+      h+='<div class="row"><div class="g"><div class="t">'+esc(k)+'</div>'
+        +'<div class="s">'+g.n+' payment'+(g.n===1?"":"s")+' · first '+fmtD(g.first)+'</div></div>'
+        +'<div class="v num">'+P2(g.s)+'</div>'
+        +(g.anyLoan?'<button class="btn sec sm" data-paygrp="'+esc(g.ids.join(","))+'">Paid</button>':'')+'</div>';
+    });
+    h+='<div class="hint">One line per place you have to send money to. Tap Paid to tick off everything that lender is owed this cycle.</div>';
+  }
+  else {
+    due.forEach(function(c){
+      h+='<div class="row"><div class="g"><div class="t">'+esc(c.name)+(c.kind==="credit"?' <span class="pill cr">bill</span>':'')+'</div><div class="s">'+fmtD(c.date)+'</div></div>'
+        +'<div class="v num">'+P2(c.amt)+'</div>'+(c.kind==="loan"?'<button class="btn sec sm" data-toggle="'+c.id+'">Paid</button>':'')+'</div>';
+    });
+  }
+  h+='<div class="row" style="border-top:2px solid var(--ink);border-bottom:none;padding-top:10px"><div class="g"><div class="t" style="font-weight:700">Total</div></div><div class="v num">'+P2(committedTotal())+'</div></div></div>';
 
   h+='<div class="card"><h2>Schedule</h2><div class="seg" id="loanSeg">'
     +sg2("due","Upcoming")+sg2("month","By month")+sg2("lender","By lender")+sg2("paid","Paid")+'</div>';
@@ -768,7 +817,7 @@ function renderLoans(){
       h+='<div class="row"><div class="g"><div class="t">'+MON[+k.slice(5,7)-1]+' '+k.slice(0,4)+'</div>'
         +'<div class="s">'+bm[k].n+' payment'+(bm[k].n===1?"":"s")+'</div>'
         +'<div class="bar" style="margin-top:6px"><i style="width:'+w+'%"></i></div></div>'
-        +'<div class="v num">'+P(bm[k].s)+'</div></div>';
+        +'<div class="v num">'+P2(bm[k].s)+'</div></div>';
     });
   }
   else if(loanFilter==="lender"){
@@ -776,20 +825,28 @@ function renderLoans(){
     rows.forEach(function(L){ if(L.paid) return; var k=(L.lender||"?")+" · "+L.loan; by[k]=by[k]||{n:0,s:0,last:""}; by[k].n++; by[k].s+=+L.amt; if(L.due>by[k].last) by[k].last=L.due; });
     var ks=Object.keys(by).sort(function(a,b){ return by[b].s-by[a].s; });
     if(!ks.length) h+='<div class="empty">Everything is paid.</div>';
-    ks.forEach(function(k){ h+='<div class="row"><div class="g"><div class="t">'+esc(k)+'</div><div class="s">'+by[k].n+' left · ends '+fmtD(by[k].last)+'</div></div><div class="v num">'+P(by[k].s)+'</div></div>'; });
+    ks.forEach(function(k){ h+='<div class="row"><div class="g"><div class="t">'+esc(k)+'</div><div class="s">'+by[k].n+' left · ends '+fmtD(by[k].last)+'</div></div><div class="v num">'+P2(by[k].s)+'</div></div>'; });
   } else {
     var want=loanFilter==="paid";
     var list=rows.filter(function(L){ return !!L.paid===want; });
     if(!list.length) h+='<div class="empty">Nothing here.</div>';
     list.slice(0,60).forEach(function(L){
       h+='<div class="row"><div class="g"><div class="t">'+esc((L.lender?L.lender+" ":"")+L.loan)+'</div><div class="s">'+fmtD(L.due)+' '+parse(L.due).getFullYear()+'</div></div>'
-        +'<div class="v num">'+P(L.amt)+'</div><button class="btn sec sm" data-toggle="'+L.id+'">'+(L.paid?"✓":"Paid")+'</button></div>';
+        +'<div class="v num">'+P2(L.amt)+'</div><button class="btn sec sm" data-toggle="'+L.id+'">'+(L.paid?"✓":"Paid")+'</button></div>';
     });
     if(list.length>60) h+='<div class="hint">Showing 60 of '+list.length+'.</div>';
   }
   h+='<div class="btnrow"><button class="btn sec" id="addLoan">Add a loan</button><button class="btn sec" id="addPay">One payment</button></div></div>';
 
   v.innerHTML=h;
+  $("#dueSeg").addEventListener("click",function(e){ var b=e.target.closest("button"); if(b){ dueGroup=b.dataset.g; renderLoans(); } });
+  v.querySelectorAll("[data-paygrp]").forEach(function(b){
+    b.addEventListener("click",function(){
+      var ids=b.dataset.paygrp.split(","), n=0;
+      DB.loans.forEach(function(L){ if(ids.indexOf(L.id)>-1 && !L.paid){ L.paid=true; n++; } });
+      save(); renderLoans(); toast(n+" payment"+(n===1?"":"s")+" ticked off");
+    });
+  });
   $("#loanSeg").addEventListener("click",function(e){ var b=e.target.closest("button"); if(b){ loanFilter=b.dataset.k; renderLoans(); } });
   v.querySelectorAll("[data-toggle]").forEach(function(b){
     b.addEventListener("click",function(){
@@ -1051,6 +1108,7 @@ function renderSetup(){
     +'<div class="hint" style="margin-top:-4px;margin-bottom:12px">A reminder only. The daily number uses your account balances.</div>'
     +sel("Repeat","crule",[["semimonthly","15th and end of month"],["monthly","Monthly"],["fortnightly","Every two weeks"],["custom","Custom, I set it myself"]],DB.settings.rule)
     +'<div class="hint" style="margin-top:0">Saves as you type. Nothing here deletes anything.</div>'
+    +(cycleLooksOff()?'<div class="hint" style="margin-top:0;color:var(--amber)">These dates do not match the 15th and end of month. On this window the next payday lands on '+fmtD(nextCycle(DB.cycle,DB.settings.rule).start)+'.</div><div class="btnrow"><button class="btn sec" id="fixCyc">Snap to '+fmtD(cycleLooksOff().start)+' \u2013 '+fmtD(cycleLooksOff().end)+'</button></div>':'')
     +'<div class="btnrow"><button class="btn sec" id="planBtn">Plan a future cutoff \u203a</button></div>'
     +'<div class="hint">Check a cutoff before it arrives: what is due, what you expect to be paid, and whether it covers itself. Change anything you like in there, none of it touches your real numbers.</div>'
     +'<div class="btnrow"><button class="btn sec" id="newCycle">Payday \u2014 move to next cycle</button></div>'
@@ -1138,6 +1196,7 @@ function renderSetup(){
     +'<div class="hint" style="margin-top:0;margin-bottom:12px">Stored in this browser only. Export before big changes. Never put card numbers, PINs or passwords in here.</div>'
     +'<div class="btnrow" style="margin-top:0"><button class="btn sec" id="expBtn">Export backup</button><button class="btn sec" id="impBtn">Import</button></div>'
     +'<input type="file" id="impFile" accept="application/json,.json" style="display:none">'
+    +(undoLabel()?'<div class="btnrow"><button class="btn sec" id="undoBtn">Undo: '+esc(undoLabel())+'</button></div><div class="hint" style="margin-top:6px">Puts everything back to just before that. One step only.</div>':'')
     +'<div class="btnrow"><button class="btn sec" id="updBtn">Check for app update</button></div>'+'<div class="btnrow"><button class="btn dan" id="wipeBtn">Erase everything</button></div>'
     +'<div class="hint">Daily v'+VER+' · '+DB.txns.length+' logged · '+DB.loans.length+' scheduled payments</div></div>';
 
@@ -1168,6 +1227,13 @@ function wireSetup(v){
   }
   ["cs","ce","cin","crule"].forEach(function(id){
     var n=$("#"+id); if(n) n.addEventListener("change",autoCycle);
+  });
+  var fc=$("#fixCyc");
+  if(fc) fc.addEventListener("click",function(){
+    var c=cycleLooksOff(); if(!c) return;
+    snapshot("Snap cycle dates");
+    DB.cycle.start=c.start; DB.cycle.end=c.end;
+    save(); render(); toast("Cycle now "+fmtD(c.start)+" to "+fmtD(c.end));
   });
   $("#planBtn").addEventListener("click",function(){ VIEW="plan"; render(); window.scrollTo(0,0); });
   $("#newCycle").addEventListener("click",rollCycle);
@@ -1221,6 +1287,7 @@ function wireSetup(v){
     DB.settings.theme = t==="auto"?"light":(t==="light"?"dark":"auto");
     applyTheme(); save(); renderSetup();
   });
+  var ub=$("#undoBtn"); if(ub) ub.addEventListener("click",undoLast);
   $("#updBtn").addEventListener("click",forceUpdate);
   $("#expBtn").addEventListener("click",doExport);
   $("#impBtn").addEventListener("click",function(){ $("#impFile").click(); });
@@ -1237,24 +1304,28 @@ function biggestCash(){
   DB.accounts.forEach(function(a){ if(a.type!=="cash") return; if(!best||(+a.bal||0)>(+best.bal||0)) best=a; });
   return best;
 }
-var rollStart=null;
+var rollStart=null, rollEnd=null;
 function rollCycle(){
   var nc=nextCycle(DB.cycle,DB.settings.rule);
   var t=todayISO(), late = t>nc.start && t<=nc.end;
   var body=fld("Pay landed on","rcDate","date",(t<nc.start||t>nc.end)?nc.start:t)
+    +fld("This cycle ends","rcEnd","date",nc.end)
     +'<div class="hint" style="margin-top:0">'
     +(late
-      ? 'Payroll was due '+fmtD(nc.start)+' and it is already '+fmtD(t)+'. Start the cycle on the day the money actually landed — the days before it stay in the cycle that just ended, where you were still living on the old pay.'
-      : 'The new cycle starts here and still ends '+fmtD(nc.end)+'.')
+      ? 'Payroll was due '+fmtD(nc.start)+' and it is already '+fmtD(t)+'. Start the cycle on the day the money actually landed, so the days before it stay in the cycle that just ended.'
+      : 'Check both dates before you save. This is the window your daily number divides money over.')
     +'</div>'
-    +'<div class="hint">Ends '+fmtD(nc.end)+' either way. Balances, loans and history stay. Savings go back to unfunded so you can fund them again.</div>';
+    +'<div class="hint">Balances, loans and history stay. Savings go back to unfunded so you can fund them again.</div>';
   openSheet("Payday",body,function(){
     rollStart = $("#rcDate").value || nc.start;
+    rollEnd   = $("#rcEnd").value || nc.end;
+    if(rollEnd<rollStart){ toast("The end date is before the start"); return false; }
     setTimeout(doRollFlow,280);
     return true;
   });
 }
 function doRollFlow(){
+  snapshot("Payday roll");
   var any=false;
   DB.accounts.forEach(function(x){ if(x.type==="cash" && Math.round(+x.bal||0)>0) any=true; });
   if(any) return openSweep();
@@ -1303,8 +1374,9 @@ function openSweep(){
 
 function doRoll(quiet){
   var c=nextCycle(DB.cycle,DB.settings.rule);
-  if(rollStart && rollStart>=c.start && rollStart<c.end) c.start=rollStart;
-  rollStart=null;
+  if(rollEnd) c.end=rollEnd;
+  if(rollStart && rollStart<=c.end) c.start=rollStart;
+  rollStart=null; rollEnd=null;
   DB.cycle=c; DB.cycle.adjust=0;
   DB.goals.forEach(function(g){ g.fundedCycle=null; });
   save(); render();
@@ -1666,8 +1738,29 @@ function delTxn(id){
 }
 
 /* ---------- data ---------- */
+/* one step back: a snapshot taken just before anything destructive */
+function snapshot(label){
+  try{
+    var keep=DB._undo; delete DB._undo;
+    var s=JSON.stringify(DB);
+    DB._undo={label:label,at:todayISO(),data:s};
+  }catch(e){ if(keep) DB._undo=keep; }
+}
+function undoLabel(){ return (DB._undo&&DB._undo.label)||""; }
+function undoLast(){
+  if(!DB._undo){ toast("Nothing to undo"); return; }
+  var L=DB._undo.label;
+  if(!confirm("Undo \""+L+"\"?\n\nEverything goes back to how it was just before that, including anything you have changed since.")) return;
+  try{
+    var d=JSON.parse(DB._undo.data);
+    DB=d; delete DB._undo;
+    migrate(); save(); applyTheme(); VIEW="setup"; render();
+    toast("Undone: "+L);
+  }catch(e){ toast("That snapshot could not be read"); }
+}
 function doExport(){
-  var blob=new Blob([JSON.stringify(DB,null,2)],{type:"application/json"});
+  var clean=JSON.parse(JSON.stringify(DB)); delete clean._undo;
+  var blob=new Blob([JSON.stringify(clean,null,2)],{type:"application/json"});
   var url=URL.createObjectURL(blob),a=el("a");
   a.href=url; a.download="daily-backup-"+todayISO()+".json";
   document.body.appendChild(a); a.click(); a.remove();
@@ -1682,7 +1775,9 @@ function doImport(e){
       var d=JSON.parse(r.result);
       if(!d||typeof d!=="object") throw 0;
       if(!confirm("Import this file? It replaces what is on this device.")) return;
-      DB=d; migrate(); save(); applyTheme(); render(); toast("Imported");
+      snapshot("Import");
+      var back=DB._undo;
+      DB=d; DB._undo=back; migrate(); save(); applyTheme(); render(); toast("Imported");
     }catch(err){ toast("That file could not be read"); }
   };
   r.readAsText(f); e.target.value="";

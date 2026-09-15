@@ -209,7 +209,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 <script>
 "use strict";
 /* ===== Daily v1.1 — everything stays in this browser. No personal data in this file. ===== */
-var VER="1.30", KEY="daily.v1";
+var VER="1.31", KEY="daily.v1";
 var $=function(s,r){ return (r||document).querySelector(s); };
 var el=function(t){ return document.createElement(t); };
 var ACCENTS=["#1D6FA3","#1F6B4F","#8A3E9E","#C2740A","#A8341E","#2B6DB0","#0E7C86","#B03A6B"];
@@ -383,8 +383,8 @@ function creditBuckets(A){
     var due=creditDueFor(A,T.date); if(!due) return;
     by[due]=(by[due]||0)+amt; spend+=amt;
   });
-  var older=Math.round((+A.bal||0)+paid-spend);
-  if(older>0){
+  var older=Math.round(((+A.bal||0)+paid-spend)*100)/100;
+  if(older>0.005){
     var d0=onOrAfter(todayISO(),+A.dueDay||0);
     if(d0) by[d0]=(by[d0]||0)+older;
   }
@@ -393,7 +393,7 @@ function creditBuckets(A){
   for(var i=0;i<ks.length && paid>0.005;i++){
     var take=Math.min(paid,by[ks[i]]);
     by[ks[i]]-=take; paid-=take;
-    if(Math.round(by[ks[i]])<=0) delete by[ks[i]];
+    if(by[ks[i]]<=0.005) delete by[ks[i]];
   }
   return by;
 }
@@ -406,7 +406,7 @@ function commitmentsIn(a,b,noCredit){
     var by=creditBuckets(A);
     Object.keys(by).forEach(function(due){
       if(due<a || due>b) return;
-      if(Math.round(by[due])<=0) return;
+      if(by[due]<=0.005) return;
       out.push({id:A.id+"@"+due,kind:"credit",who:A.name,name:A.name+" bill",amt:by[due],date:due});
     });
   });
@@ -652,29 +652,29 @@ function afford(){
 /* ---------- MONEY ---------- */
 function renderMoney(){
   var v=$("#v-money"),h="";
-  h+='<div class="vhead"><h1>Envelopes</h1><span class="sub num">'+P(onHand())+' total</span></div>';
+  h+='<div class="vhead"><h1>Envelopes</h1><span class="sub num">'+P2(onHand())+' total</span></div>';
 
   h+='<div class="card"><h2>Accounts</h2><div class="acctgrid">';
   DB.accounts.filter(function(a){ return a.type==="cash"; }).forEach(function(A){
     var neg=(+A.bal||0)<0;
     h+='<button class="acct" data-bal="'+A.id+'"><span class="an">'+esc(A.name)+'</span>'
-      +'<span class="av num'+(neg?" neg":"")+'">'+P(+A.bal||0)+'</span></button>';
+      +'<span class="av num'+(neg?" neg":"")+'">'+P2(+A.bal||0)+'</span></button>';
   });
   h+='</div>';
   if(reserved()>0){
-    h+='<div class="row" style="margin-top:12px"><div class="g"><div class="t">Spendable</div><div class="s">what the daily number divides</div></div><div class="v num">'+P(spendable())+'</div></div>'
-      +'<button class="row" data-rsv="1"><div class="g"><div class="t">Set aside</div><div class="s">in your accounts, not budgeted</div></div><div class="v num">'+P(reserved())+'</div><span class="chev">›</span></button>';
+    h+='<div class="row" style="margin-top:12px"><div class="g"><div class="t">Spendable</div><div class="s">what the daily number divides</div></div><div class="v num">'+P2(spendable())+'</div></div>'
+      +'<button class="row" data-rsv="1"><div class="g"><div class="t">Set aside</div><div class="s">in your accounts, not budgeted</div></div><div class="v num">'+P2(reserved())+'</div><span class="chev">›</span></button>';
   }
   h+='</div>';
 
   DB.envelopes.forEach(function(E){
-    h+='<div class="card"><h2>'+esc(E.name)+'<span class="num" style="font-size:16px;color:var(--ink);text-transform:none;letter-spacing:-.02em">'+P(envTotal(E))+'</span></h2>';
+    h+='<div class="card"><h2>'+esc(E.name)+'<span class="num" style="font-size:16px;color:var(--ink);text-transform:none;letter-spacing:-.02em">'+P2(envTotal(E))+'</span></h2>';
     if(!(E.accts||[]).length) h+='<div class="empty">No accounts in here.</div>';
     (E.accts||[]).forEach(function(id){
       var A=acct(id); if(!A) return;
-      h+='<button class="row" data-bal="'+A.id+'"><div class="g"><div class="t">'+esc(A.name)+'</div></div><div class="v num">'+P(+A.bal||0)+'</div><span class="chev">›</span></button>';
+      h+='<button class="row" data-bal="'+A.id+'"><div class="g"><div class="t">'+esc(A.name)+'</div></div><div class="v num">'+P2(+A.bal||0)+'</div><span class="chev">›</span></button>';
     });
-    h+='<div class="sub-acct"><span>Spent this cycle</span><span class="num">'+P(envSpent(E.id))+'</span></div></div>';
+    h+='<div class="sub-acct"><span>Spent this cycle</span><span class="num">'+P2(envSpent(E.id))+'</span></div></div>';
   });
 
   var creds=DB.accounts.filter(function(a){ return a.type==="credit"; });
@@ -682,10 +682,10 @@ function renderMoney(){
     h+='<div class="card"><h2>Credit</h2>';
     creds.forEach(function(A){
       var by=creditBuckets(A), ks=Object.keys(by).sort();
-      var nxt=ks.filter(function(k){ return Math.round(by[k])>0; })[0];
+      var nxt=ks.filter(function(k){ return by[k]>0.005; })[0];
       h+='<button class="row" data-bal="'+A.id+'"><div class="g"><div class="t">'+esc(A.name)+'</div>'
-        +'<div class="s">'+(nxt?("Next bill "+P(by[nxt])+" on "+fmtD(nxt)+" "+parse(nxt).getFullYear()):("Due day "+(A.dueDay||"?")))+'</div></div>'
-        +'<div class="v num">'+P(+A.bal||0)+'</div><span class="chev">›</span></button>';
+        +'<div class="s">'+(nxt?("Next bill "+P2(by[nxt])+" on "+fmtD(nxt)+" "+parse(nxt).getFullYear()):("Due day "+(A.dueDay||"?")))+'</div></div>'
+        +'<div class="v num">'+P2(+A.bal||0)+'</div><span class="chev">›</span></button>';
     });
     h+='<div class="hint">Charging here never touches today’s number. It lands on the statement that closes next, and shows up as due on that statement’s due date.</div></div>';
   }
@@ -717,8 +717,9 @@ function envSpent(eid){
 }
 function openBal(id){
   var A=acct(id);
-  openSheet(A.name, fld(A.type==="credit"?"Amount owed":"Balance now","bAmt","number",A.bal), function(){
-    A.bal=+$("#bAmt").value||0; return true;
+  openSheet(A.name, fld(A.type==="credit"?"Amount owed":"Balance now","bAmt","number",Math.round((+A.bal||0)*100)/100)
+    +'<div class="hint">Centavos are kept. Type the exact figure your bank app shows.</div>', function(){
+    A.bal=Math.round((+$("#bAmt").value||0)*100)/100; return true;
   });
 }
 
@@ -1676,12 +1677,12 @@ function openAcct(id){
   var A = id==="new" ? {id:uid(),name:"",type:"cash",bal:0,stmtDay:25,dueDay:15} : acct(id);
   var body=fld("Name","aName","text",A.name)
     +sel("Type","aType",[["cash","Cash or debit"],["credit","Credit line"]],A.type)
-    +fld(A.type==="credit"?"Amount owed":"Balance","aBal","number",A.bal)
+    +fld(A.type==="credit"?"Amount owed":"Balance","aBal","number",Math.round((+A.bal||0)*100)/100)
     +'<div class="two">'+fld("Statement day","aStmt","number",A.stmtDay||"")+fld("Due day","aDue","number",A.dueDay||"")+'</div>'
     +'<div class="hint">Statement and due day only matter for credit lines.</div>'
     +(id==="new"?"":'<div class="btnrow"><button class="btn dan" id="aDel">Delete this account</button></div>');
   openSheet(id==="new"?"New account":"Edit account",body,function(){
-    A.name=$("#aName").value||"Account"; A.type=$("#aType").value; A.bal=+$("#aBal").value||0;
+    A.name=$("#aName").value||"Account"; A.type=$("#aType").value; A.bal=Math.round((+$("#aBal").value||0)*100)/100;
     A.stmtDay=+$("#aStmt").value||null; A.dueDay=+$("#aDue").value||null;
     if(id==="new") DB.accounts.push(A);
     return true;

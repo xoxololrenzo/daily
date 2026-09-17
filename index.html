@@ -174,9 +174,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 .sheet h3{margin:0 0 14px;font-size:17px;font-weight:700}
 .grabzone{padding:2px 0 11px;margin:-6px 0 0;cursor:grab;touch-action:none}
 .sheet .foot{flex:0 0 auto;display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--rule)}
-.sheet .foot .btn{width:100%}
-.sheet .foot #shSave{order:2}
-.sheet .foot #shX{order:1}
+.sheet .foot .btn{width:100%;padding:13px 6px;font-size:14.5px;white-space:nowrap}
 .row.skip .t,.row.skip .v{opacity:.42;text-decoration:line-through}
 .grab{width:42px;height:5px;border-radius:3px;background:var(--rule-2);margin:0 auto}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -217,7 +215,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 <script>
 "use strict";
 /* ===== Daily v1.1 — everything stays in this browser. No personal data in this file. ===== */
-var VER="1.32", KEY="daily.v1";
+var VER="1.33", KEY="daily.v1";
 var $=function(s,r){ return (r||document).querySelector(s); };
 var el=function(t){ return document.createElement(t); };
 var ACCENTS=["#1D6FA3","#1F6B4F","#8A3E9E","#C2740A","#A8341E","#2B6DB0","#0E7C86","#B03A6B"];
@@ -351,25 +349,28 @@ function fldCalc(k,id,val){
   return '<label class="f"><span class="k">'+k+'</span>'
     +'<input id="'+id+'" type="text" inputmode="decimal" autocomplete="off" value="'+(val==null?"":String(val))+'">'
     +'</label>'
-    +'<div class="calcrow"><button type="button" class="btn sec sm" id="'+id+'Add">+ add another</button>'
+    +'<div class="calcrow">'
+    +'<button type="button" class="btn sec sm" data-op="+" data-for="'+id+'">+</button>'
+    +'<button type="button" class="btn sec sm" data-op="-" data-for="'+id+'">\u2212</button>'
+    +'<button type="button" class="btn sec sm" data-op="*" data-for="'+id+'">\u00d7</button>'
     +'<button type="button" class="btn sec sm" id="'+id+'Clr">clear</button>'
     +'<span class="calcout" id="'+id+'Out"></span></div>';
 }
 /* wires the + button and the running total under an amount field */
 function wireCalc(id){
-  var inp=$("#"+id), add=$("#"+id+"Add"), clr=$("#"+id+"Clr"), out=$("#"+id+"Out");
+  var inp=$("#"+id), clr=$("#"+id+"Clr"), out=$("#"+id+"Out");
   if(!inp||!out) return;
   function show(){
     var raw=inp.value, v=calc(raw);
-    if(v==null || !/[+\-*/]/.test(raw)){ out.textContent = v!=null && raw ? "" : ""; return; }
-    out.innerHTML = "= <b>"+P2(v)+"</b>";
+    out.innerHTML = (v!=null && /[+\-*/]/.test(raw)) ? "= <b>"+P2(v)+"</b>" : "";
   }
   inp.addEventListener("input",show);
-  if(add) add.addEventListener("click",function(){
-    var raw=inp.value.trim();
-    if(!raw) return;
-    if(!/[0-9)]$/.test(raw)) return;
-    inp.value=raw+"+"; show(); inp.focus();
+  document.querySelectorAll('[data-for="'+id+'"]').forEach(function(b){
+    b.addEventListener("click",function(){
+      var raw=inp.value.trim();
+      if(!raw || !/[0-9)]$/.test(raw)) return;
+      inp.value=raw+b.dataset.op; show(); inp.focus();
+    });
   });
   if(clr) clr.addEventListener("click",function(){ inp.value=""; show(); inp.focus(); });
   show();
@@ -417,30 +418,53 @@ function creditDueFor(A,when){
   if(!close) return null;
   return onOrAfter(addD(close,1),D);
 }
-/* what this card owes, split by the date each bill is actually due */
-function creditBuckets(A){
-  var by={}, spend=0, paid=0;
+/* the statement that closes on `close` covers the day after the previous close */
+function stmtFrom(close,S){
+  var d=parse(close);
+  d.setDate(1); d.setMonth(d.getMonth()-1);
+  d.setDate(Math.min(S,lastDay(d.getFullYear(),d.getMonth())));
+  return addD(iso(d),1);
+}
+/* one row per statement: what you spent, when it closed, when it is due */
+function creditBills(A){
+  var S=+A.stmtDay||0, D=+A.dueDay||0;
+  if(!D) return [];
+  var byClose={}, spend=0, paid=0;
   DB.txns.forEach(function(T){
     if(T.kind==="pay" && T.to===A.id){ paid+=(+T.amt||0); return; }
     if(T.acct!==A.id) return;
-    if(T.kind==="inc"){ paid+=(+T.amt||0); return; }   // money into a card pays it down
+    if(T.kind==="inc"){ paid+=(+T.amt||0); return; }
     if(T.kind==="pay") return;
     var amt=(+T.amt||0)+(T.kind==="xfer"?(+T.fee||0):0);
-    var due=creditDueFor(A,T.date); if(!due) return;
-    by[due]=(by[due]||0)+amt; spend+=amt;
+    var close = S ? onOrAfter(T.date,S) : onOrAfter(T.date,D);
+    if(!close) return;
+    byClose[close]=(byClose[close]||0)+amt; spend+=amt;
   });
+  // a balance that predates what you have logged is already on a closed statement
   var older=Math.round(((+A.bal||0)+paid-spend)*100)/100;
   if(older>0.005){
-    var d0=onOrAfter(todayISO(),+A.dueDay||0);
-    if(d0) by[d0]=(by[d0]||0)+older;
+    var c0 = S ? onOrAfter(addD(todayISO(),-1),S) : onOrAfter(todayISO(),D);
+    if(c0){ byClose[c0]=(byClose[c0]||0)+older; }
   }
-  // payments clear the oldest bill first
-  var ks=Object.keys(by).sort();
-  for(var i=0;i<ks.length && paid>0.005;i++){
-    var take=Math.min(paid,by[ks[i]]);
-    by[ks[i]]-=take; paid-=take;
-    if(by[ks[i]]<=0.005) delete by[ks[i]];
-  }
+  var out=[];
+  Object.keys(byClose).sort().forEach(function(close){
+    var amt=byClose[close];
+    if(paid>0.005){ var take=Math.min(paid,amt); amt-=take; paid-=take; }
+    if(amt<=0.005) return;
+    var from = S ? stmtFrom(close,S) : close;
+    out.push({
+      id:A.id+"@"+close, acct:A.id, name:A.name, amt:Math.round(amt*100)/100,
+      close:close, from:from, period:from.slice(0,7),
+      due: S ? onOrAfter(addD(close,1),D) : onOrAfter(close,D)
+    });
+  });
+  return out.filter(function(x){ return !!x.due; });
+}
+function spendLabel(b){ return MON[+b.period.slice(5,7)-1]+" spending"; }
+/* what this card owes, split by the date each bill is actually due */
+function creditBuckets(A){
+  var by={};
+  creditBills(A).forEach(function(b){ by[b.due]=(by[b.due]||0)+b.amt; });
   return by;
 }
 function commitmentsIn(a,b,noCredit){
@@ -449,11 +473,10 @@ function commitmentsIn(a,b,noCredit){
   DB.fixed.forEach(function(F){ var d=dayInWindow(F.day,a,b); if(d && (F.done||[]).indexOf(d)===-1) out.push({id:F.id,kind:"fixed",who:F.name,name:F.name,amt:+F.amt,date:d}); });
   if(!noCredit) DB.accounts.forEach(function(A){
     if(A.type!=="credit") return;
-    var by=creditBuckets(A);
-    Object.keys(by).forEach(function(due){
-      if(due<a || due>b) return;
-      if(by[due]<=0.005) return;
-      out.push({id:A.id+"@"+due,kind:"credit",who:A.name,name:A.name+" bill",amt:by[due],date:due});
+    creditBills(A).forEach(function(x){
+      if(x.due<a || x.due>b) return;
+      out.push({id:A.id+"@"+x.due,kind:"credit",who:A.name,
+                name:A.name+" bill \u00b7 "+spendLabel(x),amt:x.amt,date:x.due});
     });
   });
   out.sort(function(x,y){ return x.date<y.date?-1:1; });
@@ -838,10 +861,22 @@ var dueGroup="who";
 function sg3(k,label){ return '<button data-g="'+k+'" aria-pressed="'+(dueGroup===k)+'">'+label+'</button>'; }
 function renderLoans(){
   var v=$("#v-loans"),h="",paid=0,left=0,last=null;
-  DB.loans.forEach(function(L){ if(L.paid) paid+=+L.amt; else { left+=+L.amt; if(!last||L.due>last) last=L.due; } });
+  var rows=DB.loans.map(function(L){
+    return {id:L.id,lender:L.lender,loan:L.loan,amt:+L.amt,due:L.due,paid:!!L.paid,kind:"loan"};
+  });
+  DB.accounts.forEach(function(A){
+    if(A.type!=="credit") return;
+    creditBills(A).forEach(function(x){
+      rows.push({id:x.id,lender:A.name,loan:spendLabel(x),amt:x.amt,due:x.due,paid:false,
+                 kind:"credit",acct:A.id});
+    });
+  });
+  rows.sort(function(a,b){ return a.due<b.due?-1:1; });
+  rows.forEach(function(L){ if(L.paid) paid+=+L.amt; else { left+=+L.amt; if(!last||L.due>last) last=L.due; } });
   var total=paid+left, pct= total? paid/total*100:0;
+  var nleft=rows.filter(function(l){ return !l.paid; }).length;
 
-  h+='<div class="vhead"><h1>Loans</h1><span class="sub">'+DB.loans.filter(function(l){return !l.paid;}).length+' payments left</span></div>';
+  h+='<div class="vhead"><h1>Loans</h1><span class="sub">'+nleft+' payment'+(nleft===1?"":"s")+' left</span></div>';
   h+='<div class="hero"><div class="lbl">Still to pay</div><div class="big num">'+P2(left)+'</div>'
     +'<div class="note">'+(last?("Last payment "+fmtD(last)+" "+parse(last).getFullYear()):"Nothing scheduled")+'</div>'
     +'<div class="bar"><i class="gd" style="width:'+pct+'%"></i></div>'
@@ -855,11 +890,11 @@ function renderLoans(){
     var bw={};
     due.forEach(function(c){
       var k=c.who||c.name;
-      bw[k]=bw[k]||{n:0,s:0,first:"",ids:[],credit:"",fixed:""};
+      bw[k]=bw[k]||{n:0,s:0,first:"",ids:[],credit:"",creditAmt:0,fixed:""};
       bw[k].n++; bw[k].s+=c.amt;
       if(!bw[k].first || c.date<bw[k].first) bw[k].first=c.date;
       if(c.kind==="loan") bw[k].ids.push(c.id);
-      if(c.kind==="credit") bw[k].credit=String(c.id).split("@")[0];
+      if(c.kind==="credit"){ bw[k].credit=String(c.id).split("@")[0]; bw[k].creditAmt+=c.amt; }
       if(c.kind==="fixed") bw[k].fixed=c.id;
     });
     var wk=Object.keys(bw).sort(function(a,b){ return bw[b].s-bw[a].s; });
@@ -868,7 +903,7 @@ function renderLoans(){
       h+='<div class="row"><div class="g"><div class="t">'+esc(k)+'</div>'
         +'<div class="s">'+g.n+' payment'+(g.n===1?"":"s")+' · first '+fmtD(g.first)+'</div></div>'
         +'<div class="v num">'+P2(g.s)+'</div>'
-        +'<button class="btn sec sm" data-pay="'+esc(JSON.stringify({ids:g.ids,name:k,amt:g.s,credit:g.credit||"",fixed:g.fixed||"",date:g.first}))+'">Paid</button></div>';
+        +'<button class="btn sec sm" data-pay="'+esc(JSON.stringify({ids:g.ids,name:k,amt:g.s,credit:g.credit||"",creditAmt:g.creditAmt||0,fixed:g.fixed||"",date:g.first}))+'">Paid</button></div>';
     });
     h+='<div class="hint">One line per place you have to send money to. Tap Paid to tick off everything that lender is owed this cycle.</div>';
   }
@@ -876,14 +911,13 @@ function renderLoans(){
     due.forEach(function(c){
       h+='<div class="row"><div class="g"><div class="t">'+esc(c.name)+(c.kind==="credit"?' <span class="pill cr">bill</span>':'')+'</div><div class="s">'+fmtD(c.date)+'</div></div>'
         +'<div class="v num">'+P2(c.amt)+'</div>'
-        +'<button class="btn sec sm" data-pay="'+esc(JSON.stringify({ids:c.kind==="loan"?[c.id]:[],name:c.name,amt:c.amt,credit:c.kind==="credit"?String(c.id).split("@")[0]:"",fixed:c.kind==="fixed"?c.id:"",date:c.date}))+'">Paid</button></div>';
+        +'<button class="btn sec sm" data-pay="'+esc(JSON.stringify({ids:c.kind==="loan"?[c.id]:[],name:c.name,amt:c.amt,credit:c.kind==="credit"?String(c.id).split("@")[0]:"",creditAmt:c.kind==="credit"?c.amt:0,fixed:c.kind==="fixed"?c.id:"",date:c.date}))+'">Paid</button></div>';
     });
   }
   h+='<div class="row" style="border-top:2px solid var(--ink);border-bottom:none;padding-top:10px"><div class="g"><div class="t" style="font-weight:700">Total</div></div><div class="v num">'+P2(committedTotal())+'</div></div></div>';
 
   h+='<div class="card"><h2>Schedule</h2><div class="seg" id="loanSeg">'
     +sg2("due","Upcoming")+sg2("month","By month")+sg2("lender","By lender")+sg2("paid","Paid")+'</div>';
-  var rows=DB.loans.slice().sort(function(a,b){ return a.due<b.due?-1:1; });
   if(!rows.length) h+='<div class="empty">No schedule yet.<br>Import your seed file in Setup, or add rows there.</div>';
   else if(loanFilter==="month"){
     var bm={};
@@ -910,12 +944,19 @@ function renderLoans(){
     var list=rows.filter(function(L){ return !!L.paid===want; });
     if(!list.length) h+='<div class="empty">Nothing here.</div>';
     list.slice(0,60).forEach(function(L){
+      if(L.kind==="credit"){
+        h+='<div class="row"><div class="g"><div class="t">'+esc(L.lender+" "+L.loan)+' <span class="pill cr">bill</span></div>'
+          +'<div class="s">due '+fmtD(L.due)+' '+parse(L.due).getFullYear()+'</div></div>'
+          +'<div class="v num">'+P2(L.amt)+'</div>'
+          +'<button class="btn sec sm" data-pay="'+esc(JSON.stringify({ids:[],name:L.lender+" bill",amt:L.amt,credit:L.acct,creditAmt:L.amt,fixed:"",date:L.due}))+'">Paid</button></div>';
+        return;
+      }
       h+='<div class="row"><button class="g rowopen" data-open="'+L.id+'"><div class="t">'+esc((L.lender?L.lender+" ":"")+L.loan)+' \u203a</div><div class="s">'+fmtD(L.due)+' '+parse(L.due).getFullYear()+'</div></button>'
         +'<div class="v num">'+P2(L.amt)+'</div><button class="btn sec sm" data-toggle="'+L.id+'">'+(L.paid?"✓":"Paid")+'</button></div>';
     });
     if(list.length>60) h+='<div class="hint">Showing 60 of '+list.length+'.</div>';
   }
-  h+='<div class="hint">Tap any payment to edit or delete it.</div>'
+  h+='<div class="hint">Tap any payment to edit or delete it. Card bills are named for the month you spent, and dated for when they are due.</div>'
     +'<div class="btnrow"><button class="btn sec" id="addLoan">Add a loan</button><button class="btn sec" id="addPay">One payment</button></div></div>';
 
   v.innerHTML=h;
@@ -1180,6 +1221,7 @@ function openPayOff(o){
       if(!just){
         if(!a){ toast("Enter an amount"); return false; }
         var t={id:uid(),kind:"pay",amt:a,acct:$("#poAcct").value,to:o.credit||"",
+               toAmt:(o.credit ? Math.min(a,(o.creditAmt!=null?+o.creditAmt:a)) : null),
                date:$("#poDate").value||todayISO(),note:o.name,ref:(o.ids||[]).join(",")};
         DB.txns.push(t); applyTxn(t,1);
         DB.settings.lastPayAcct=t.acct;
@@ -1579,11 +1621,15 @@ function openAdjust(){
 }
 
 /* ---------- sheets ---------- */
-function openSheet(title,body,onSave){
+function openSheet(title,body,onSave,opts){
+  opts=opts||{};
   var s=$("#sheet");
   s.innerHTML='<div class="grabzone"><div class="grab"></div></div><h3>'+esc(title)+'</h3>'
     +'<div class="sbody">'+body+'</div>'
-    +'<div class="btnrow foot"><button class="btn" id="shSave">Save</button><button class="btn sec" id="shX">Cancel</button></div>';
+    +'<div class="btnrow foot"'+(opts.again?' style="grid-template-columns:1fr 1fr 1fr"':'')+'>'
+    +'<button class="btn sec" id="shX">Cancel</button>'
+    +(opts.again?'<button class="btn sec" id="shAgain">Save + add</button>':'')
+    +'<button class="btn" id="shSave">Save</button></div>';
   lockBody();
   s.style.transition=""; s.style.transform="";
   $("#scrim").style.opacity="";
@@ -1592,6 +1638,13 @@ function openSheet(title,body,onSave){
   fitSheet();
   $("#shX").addEventListener("click",closeSheet);
   $("#shSave").addEventListener("click",function(){ if(onSave()!==false){ closeSheet(); save(); render(); } });
+  if(opts.again){
+    $("#shAgain").addEventListener("click",function(){
+      if(onSave()===false) return;
+      save(); render();
+      opts.again();
+    });
+  }
 }
 function closeSheet(){
   var s=$("#sheet");
@@ -1632,6 +1685,7 @@ window.addEventListener("error",function(e){
 });
 var lockY=0;
 function lockBody(){
+  if(document.body.classList.contains("locked")) return;
   lockY = window.scrollY || window.pageYOffset || 0;
   document.body.style.top = (-lockY)+"px";
   document.body.classList.add("locked");
@@ -1651,8 +1705,10 @@ function sel(k,id,opts,cur){
   opts.forEach(function(o){ h+='<option value="'+o[0]+'"'+(cur===o[0]?" selected":"")+'>'+o[1]+'</option>'; });
   return h+'</select></label>';
 }
+var lastTxn=null;
 function openTxn(id,preKind){
   var T = id ? DB.txns.filter(function(x){ return x.id===id; })[0] : null;
+  var LT = (!T && lastTxn) ? lastTxn : null;
   if(!DB.accounts.length){ toast("Add an account in Setup first"); return; }
   if(!DB.cats.length){ toast("Add a category in Setup first"); return; }
   var cats=DB.cats.map(function(c){ return [c.id,c.name]; });
@@ -1662,8 +1718,8 @@ function openTxn(id,preKind){
   if(!T) kinds.push(["borrow","Borrowed money"]);
   var body=sel("Type","txKind",kinds,T?(T.kind||"exp"):(preKind||"exp"))
     +fldCalc("Amount","txAmt",T?T.amt:"")
-    +'<div id="txCatWrap">'+sel("What","txCat",cats,(T&&T.cat)?T.cat:DB.cats[0].id)+'</div>'
-    +sel("From","txAcct",accts,(T&&T.acct)?T.acct:DB.accounts[0].id)
+    +'<div id="txCatWrap">'+sel("What","txCat",cats,(T&&T.cat)?T.cat:(LT?LT.cat:DB.cats[0].id))+'</div>'
+    +sel("From","txAcct",accts,(T&&T.acct)?T.acct:(LT?LT.acct:DB.accounts[0].id))
     +'<div id="txToWrap">'+sel("To","txTo",dests,(T&&T.to)?T.to:(DB.accounts[1]||DB.accounts[0]).id)
       +fld("Transfer fee","txFee","number",(T&&T.fee)?T.fee:"")
       +'<div class="hint" style="margin-top:-2px">Cash-in, cash-out or send-money charges. It comes out of the account you send from and counts as spending.</div>'+'</div>'
@@ -1677,10 +1733,13 @@ function openTxn(id,preKind){
       +'<div id="bwFee" class="hint"></div>'
     +'</div>'
     +'<div id="txPayHint" class="hint" style="margin-top:-2px">Use this for loans, bills and card payments. It leaves the account but does not count as spending, because it was already held back.</div>'
-    +fld("Date","txDate","date",T?T.date:todayISO())
+    +fld("Date","txDate","date",T?T.date:(LT?LT.date:todayISO()))
     +fld("Note (optional)","txNote","text",T?T.note:"")
     +(T?'<div class="btnrow"><button class="btn dan" id="txDel">Delete this</button></div>':'');
 
+  var reopen = T ? null : function(){
+    openTxn(null, $("#txKind") ? $("#txKind").value : preKind);
+  };
   openSheet(T?"Edit entry":(preKind==="xfer"?"Move money":"Add"),body,function(){
     var a=calc($("#txAmt").value); if(!a){ toast("Enter an amount"); return false; }
     var k=T?$("#txKind").value:$("#txKind").value;
@@ -1725,11 +1784,12 @@ function openTxn(id,preKind){
       toast("Updated");
     } else {
       if(k==="xfer" && $("#txTo").value===$("#txAcct").value){ toast("Pick two different places"); return false; }
+      lastTxn={cat:$("#txCat").value,acct:$("#txAcct").value,date:$("#txDate").value};
       addTxn({kind:k,amt:a,cat:$("#txCat").value,acct:$("#txAcct").value,to:$("#txTo").value,
               fee:(k==="xfer")?(+$("#txFee").value||0):0,date:$("#txDate").value,note:$("#txNote").value});
     }
     return true;
-  });
+  }, reopen ? {again:reopen} : null);
 
   function feeLine(){
     var got=calc($("#txAmt").value)||0, owed=0;
@@ -1887,7 +1947,13 @@ function applyTxn(T,dir){
   if(T.kind==="pay"){
     var S=acct(T.acct);
     if(S) S.bal = (+S.bal||0) + dir*(S.type==="credit" ? amt : -amt);
-    if(T.to){ var C=acct(T.to); if(C && C.type==="credit") C.bal = (+C.bal||0) - dir*amt; }
+    if(T.to){
+      var C=acct(T.to);
+      if(C && C.type==="credit"){
+        var ca = (T.toAmt!=null) ? (+T.toAmt||0) : amt;
+        C.bal = (+C.bal||0) - dir*ca;
+      }
+    }
     return;
   }
   if(T.kind==="xfer"){

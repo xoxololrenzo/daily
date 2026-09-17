@@ -1,0 +1,10 @@
+# Personal data. Never commit these: this repo is public.
+daily-seed.json
+daily-backup-*.json
+*seed*.json
+*backup*.json
+
+# Local junk
+.DS_Store
+Thumbs.db
+node_modules/

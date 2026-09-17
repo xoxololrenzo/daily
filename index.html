@@ -215,7 +215,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 <script>
 "use strict";
 /* ===== Daily v1.1 — everything stays in this browser. No personal data in this file. ===== */
-var VER="1.33", KEY="daily.v1";
+var VER="1.35", KEY="daily.v1";
 var $=function(s,r){ return (r||document).querySelector(s); };
 var el=function(t){ return document.createElement(t); };
 var ACCENTS=["#1D6FA3","#1F6B4F","#8A3E9E","#C2740A","#A8341E","#2B6DB0","#0E7C86","#B03A6B"];
@@ -784,6 +784,107 @@ function envSpent(eid){
   DB.txns.forEach(function(T){ if(!inCycle(T.date)) return; var C=cat(T.cat); if(C&&C.env===eid) s+=+T.amt; });
   return s;
 }
+/* a revolving line: you pay it off, then draw again. The draw is the thing to watch. */
+function draws(A){ return (A.draws||[]).slice().sort(function(a,b){ return a.date<b.date?1:-1; }); }
+function lastDraw(A){ return draws(A)[0]||null; }
+function drawFees(A){ var s=0; (A.draws||[]).forEach(function(d){ s+=+d.fee||0; }); return s; }
+function openDraw(id){
+  var A=acct(id); if(!A) return;
+  var cash=DB.accounts.filter(function(a){ return a.type==="cash"; }).map(function(a){ return [a.id,a.name]; });
+  var prev=lastDraw(A);
+  openSheet("Redraw from "+A.name,
+    fldCalc("Amount you received","drGot","")
+    +fldCalc("Fee added to the balance","drFee","")
+    +sel("Landed in","drInto",cash.concat([["","history only, change nothing"]]),
+         DB.settings.payAcct||(cash[0]||[""])[0])
+    +fld("Date","drDate","date",todayISO())
+    +'<div id="drOut" class="hint" style="margin-top:0"></div>'
+    +(prev?'<div class="hint">Last redraw was '+P2(prev.got)+' on '+fmtD(prev.date)+'. Anything lower is the ratchet working.</div>':'')
+    +((+A.cap||0)>0?'<div class="hint">Your cap is '+P2(A.cap)+'.</div>':''),
+    function(){
+      var got=calc($("#drGot").value)||0, fee=calc($("#drFee").value)||0;
+      if(!got){ toast("Enter what you received"); return false; }
+      var into=$("#drInto").value, date=$("#drDate").value||todayISO();
+      A.draws=A.draws||[];
+      A.draws.push({id:uid(),date:date,got:got,fee:fee,into:into});
+      if(into && acct(into)){
+        // a real redraw: the balance goes up and the cash lands
+        A.bal=Math.round(((+A.bal||0)+got+fee)*100)/100;
+        var t={id:uid(),kind:"inc",amt:got,cat:"",acct:into,date:date,note:"Redraw from "+A.name};
+        DB.txns.push(t); applyTxn(t,1);
+      }
+      save();
+      var msg="Redrew "+P2(got);
+      if(prev) msg += got<prev.got ? (", "+P2(prev.got-got)+" lower than last time") : (got>prev.got ? ", HIGHER than last time" : ", same as last time");
+      toast(msg);
+      return true;
+    });
+  function upd(){
+    var got=calc($("#drGot").value)||0, fee=calc($("#drFee").value)||0;
+    var out=$("#drOut"); if(!out) return;
+    if(!got){ out.textContent=""; return; }
+    var pc = got? (fee/got*100) : 0;
+    var over = (+A.cap||0)>0 && got>(+A.cap||0);
+    var hist = !$("#drInto").value;
+    out.innerHTML = (hist
+        ? "Recorded for the ratchet only. No balance moves."
+        : "Balance goes to <b>"+P2((+A.bal||0)+got+fee)+"</b>.")
+      + (fee>0 ? " The fee is <b style=\"color:var(--alarm)\">"+P2(fee)+"</b>, "+pc.toFixed(1)+"% of what you took." : "")
+      + (over ? " <b style=\"color:var(--alarm)\">That is above your cap of "+P2(A.cap)+".</b>" : "");
+  }
+  wireCalc("drGot"); wireCalc("drFee");
+  ["drGot","drFee"].forEach(function(x){ var n=$("#"+x); if(n) n.addEventListener("input",upd); });
+  $("#drInto").addEventListener("change",upd);
+  upd();
+}
+function openCap(id){
+  var A=acct(id); if(!A) return;
+  openSheet(A.name+" redraw cap",
+    fldCalc("Never draw more than","capAmt",(+A.cap||0)||"")
+    +'<div class="hint">The whole plan rests on each redraw being smaller than the last. Set the number now, while it is easy, not at the counter on payday. The app will warn you if you go over it.</div>',
+    function(){ A.cap=calc($("#capAmt").value)||0; return true; });
+  wireCalc("capAmt");
+}
+function ratchetCard(A){
+  var ds=draws(A), h="";
+  h+='<div class="card"><h2>'+esc(A.name)+' · revolving</h2>';
+  var bills=creditBills(A), nxt=bills[0];
+  h+='<button class="row" data-bal="'+A.id+'"><div class="g"><div class="t">Balance now</div>'
+    +'<div class="s">'+(nxt?("due "+fmtD(nxt.due)+" "+parse(nxt.due).getFullYear()):"no due day set")+'</div></div>'
+    +'<div class="v num" style="font-size:17px;font-weight:700">'+P2(+A.bal||0)+'</div><span class="chev">›</span></button>';
+  h+='<button class="row" data-cap="'+A.id+'"><div class="g"><div class="t">Your cap</div>'
+    +'<div class="s">never draw more than this</div></div>'
+    +'<div class="v num">'+((+A.cap||0)>0?P2(A.cap):"not set")+'</div><span class="chev">›</span></button>';
+
+  if(ds.length){
+    var peak=0; ds.forEach(function(d){ if(d.got>peak) peak=d.got; });
+    h+='<div style="font-size:12px;font-weight:700;color:var(--muted);margin:16px 0 4px;text-transform:uppercase;letter-spacing:.04em">The ratchet</div>';
+    ds.slice(0,8).forEach(function(d,i){
+      var prev=ds[i+1], diff=prev?(prev.got-d.got):0;
+      var w=peak?Math.round(d.got/peak*100):0;
+      h+='<div style="padding:10px 0;border-bottom:1px solid var(--rule)">'
+        +'<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">'
+        +'<div style="font-size:13px;color:var(--muted)">'+fmtD(d.date)+' '+parse(d.date).getFullYear()+'</div>'
+        +'<div class="num" style="font-weight:700">'+P2(d.got)
+        +(prev?' <span style="font-weight:400;font-size:12.5px;color:var('+(diff>0?'--good':(diff<0?'--alarm':'--muted'))+')">'
+          +(diff>0?'↓ ':(diff<0?'↑ ':''))+(diff?P2(Math.abs(diff)):'same')+'</span>':'')
+        +'</div></div>'
+        +'<div class="bar" style="height:5px;margin:7px 0 0"><i class="'+(prev&&diff<0?"hot":"gd")+'" style="width:'+w+'%"></i></div>'
+        +(d.fee>0?'<div style="font-size:12px;color:var(--muted);margin-top:5px">fee '+P2(d.fee)+' · '+(d.got?(d.fee/d.got*100).toFixed(1):0)+'% of what you took</div>':'')
+        +'</div>';
+    });
+    if(drawFees(A)>0){
+      h+='<div class="row" style="border-top:2px solid var(--ink);border-bottom:none;padding-top:11px">'
+        +'<div class="g"><div class="t" style="font-weight:700">Fees on redraws</div>'
+        +'<div class="s">'+ds.length+' redraw'+(ds.length===1?"":"s")+' so far</div></div>'
+        +'<div class="v num" style="color:var(--alarm)">'+P2(drawFees(A))+'</div></div>';
+    }
+  } else {
+    h+='<div class="hint">No redraws logged yet. Log one after you pay the balance and draw again, and this becomes the record of the number going down.</div>';
+  }
+  h+='<div class="btnrow"><button class="btn sec" data-draw="'+A.id+'">Log a redraw</button></div></div>';
+  return h;
+}
 function openBal(id){
   var A=acct(id);
   openSheet(A.name, fld(A.type==="credit"?"Amount owed":"Balance now","bAmt","number",Math.round((+A.bal||0)*100)/100)
@@ -857,6 +958,78 @@ function renderCal(){
 
 /* ---------- LOANS ---------- */
 var loanFilter="due";
+/* one entry per actual loan, not per payment row */
+function loanGroups(){
+  var g={}, order=[];
+  DB.loans.forEach(function(L){
+    var k=(L.lender||"?")+"|"+(L.loan||"?");
+    if(!g[k]){ g[k]={lender:L.lender||"",loan:L.loan||"Loan",n:0,done:0,
+                     total:0,paidAmt:0,left:0,openN:0,next:null,ends:null,amts:[]}; order.push(k); }
+    var x=g[k];
+    x.n++; x.total+=+L.amt;
+    if(L.paid){ x.done++; x.paidAmt+=+L.amt; }
+    else {
+      x.openN++; x.left+=+L.amt; x.amts.push(+L.amt);
+      if(!x.next || L.due<x.next) x.next=L.due;
+      if(!x.ends || L.due>x.ends) x.ends=L.due;   // scheduled end, never shifts
+    }
+  });
+  return order.map(function(k){
+    var x=g[k];
+    x.pct = x.total>0 ? (x.paidAmt/x.total*100) : 0;
+    x.amts.sort(function(a,b){ return a-b; });
+    x.inst = x.amts.length ? x.amts[Math.floor(x.amts.length/2)] : 0;
+    return x;
+  });
+}
+function renderProgress(){
+  var all=loanGroups();
+  var run=all.filter(function(x){ return x.openN>0; });
+  var done=all.filter(function(x){ return x.openN===0; });
+  run.sort(function(a,b){ return a.ends<b.ends?-1:(a.ends>b.ends?1:0); });
+  var h="";
+
+  if(!all.length) return '<div class="empty">No loans yet.</div>';
+
+  if(run.length){
+    h+='<div style="font-size:12px;font-weight:700;color:var(--muted);margin:2px 0 4px;text-transform:uppercase;letter-spacing:.04em">Next to finish</div>';
+    var cum=0;
+    run.slice(0,6).forEach(function(x){
+      cum+=x.inst;
+      h+='<div class="row"><div class="g"><div class="t">'+esc((x.lender?x.lender+" ":"")+x.loan)+'</div>'
+        +'<div class="s">ends '+fmtD(x.ends)+' '+parse(x.ends).getFullYear()+' · frees '+P2(x.inst)+' a cutoff</div></div>'
+        +'<div class="v num" style="color:var(--good)">+'+P2(cum)+'</div></div>';
+    });
+    h+='<div class="hint">The right column is what comes back to you each cutoff once that loan and everything above it is done. Dates are the scheduled ones and do not move.</div>';
+  }
+
+  h+='<div style="font-size:12px;font-weight:700;color:var(--muted);margin:20px 0 4px;text-transform:uppercase;letter-spacing:.04em">Each loan</div>';
+  run.forEach(function(x){
+    h+='<div style="padding:12px 0;border-bottom:1px solid var(--rule)">'
+      +'<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">'
+      +'<div style="font-weight:600">'+esc((x.lender?x.lender+" ":"")+x.loan)+'</div>'
+      +'<div class="num" style="font-weight:700">'+P2(x.left)+' <span style="color:var(--muted);font-weight:400;font-size:12.5px">left</span></div></div>'
+      +'<div class="bar" style="height:6px;margin:8px 0 6px"><i class="gd" style="width:'+x.pct+'%"></i></div>'
+      +'<div style="font-size:12.5px;color:var(--muted)">'
+      +x.done+' of '+x.n+' paid · <b style="color:var(--ink)">'+x.openN+' to go</b>'
+      +(x.next?' · next '+fmtD(x.next):'')
+      +' · ends '+fmtD(x.ends)+' '+parse(x.ends).getFullYear()+'</div></div>';
+  });
+
+  if(done.length){
+    var dtot=0; done.forEach(function(x){ dtot+=x.paidAmt; });
+    h+='<div style="font-size:12px;font-weight:700;color:var(--muted);margin:20px 0 4px;text-transform:uppercase;letter-spacing:.04em">Cleared</div>'
+      +'<div class="row" style="border-bottom:2px solid var(--ink)"><div class="g"><div class="t" style="font-weight:700">'
+      +done.length+' loan'+(done.length===1?"":"s")+' finished</div><div class="s">paid off in full</div></div>'
+      +'<div class="v num" style="color:var(--good)">'+P2(dtot)+'</div></div>';
+    done.forEach(function(x){
+      h+='<div class="row"><div class="g"><div class="t">'+esc((x.lender?x.lender+" ":"")+x.loan)+' ✓</div>'
+        +'<div class="s">'+x.n+' payment'+(x.n===1?"":"s")+'</div></div>'
+        +'<div class="v num" style="color:var(--muted)">'+P2(x.paidAmt)+'</div></div>';
+    });
+  }
+  return h;
+}
 var dueGroup="who";
 function sg3(k,label){ return '<button data-g="'+k+'" aria-pressed="'+(dueGroup===k)+'">'+label+'</button>'; }
 function renderLoans(){
@@ -916,9 +1089,14 @@ function renderLoans(){
   }
   h+='<div class="row" style="border-top:2px solid var(--ink);border-bottom:none;padding-top:10px"><div class="g"><div class="t" style="font-weight:700">Total</div></div><div class="v num">'+P2(committedTotal())+'</div></div></div>';
 
+  DB.accounts.forEach(function(A){ if(A.type==="credit" && A.rev) h+=ratchetCard(A); });
+
   h+='<div class="card"><h2>Schedule</h2><div class="seg" id="loanSeg">'
-    +sg2("due","Upcoming")+sg2("month","By month")+sg2("lender","By lender")+sg2("paid","Paid")+'</div>';
+    +sg2("due","Upcoming")+sg2("progress","Progress")+sg2("month","By month")+sg2("lender","By lender")+sg2("paid","Paid")+'</div>';
   if(!rows.length) h+='<div class="empty">No schedule yet.<br>Import your seed file in Setup, or add rows there.</div>';
+  else if(loanFilter==="progress"){
+    h+=renderProgress();
+  }
   else if(loanFilter==="month"){
     var bm={};
     rows.forEach(function(L){ if(L.paid) return; var k=L.due.slice(0,7); bm[k]=bm[k]||{n:0,s:0}; bm[k].n++; bm[k].s+=+L.amt; });
@@ -977,6 +1155,9 @@ function renderLoans(){
   v.querySelectorAll("[data-open]").forEach(function(b){
     b.addEventListener("click",function(){ openLoan(b.dataset.open); });
   });
+  v.querySelectorAll("[data-draw]").forEach(function(b){ b.addEventListener("click",function(){ openDraw(b.dataset.draw); }); });
+  v.querySelectorAll("[data-cap]").forEach(function(b){ b.addEventListener("click",function(){ openCap(b.dataset.cap); }); });
+  v.querySelectorAll("[data-bal]").forEach(function(b){ b.addEventListener("click",function(){ openBal(b.dataset.bal); }); });
   $("#addLoan").addEventListener("click",openLoanPlan);
   $("#addPay").addEventListener("click",function(){ openLoan("new"); });
 }
@@ -1838,10 +2019,13 @@ function openAcct(id){
     +fld(A.type==="credit"?"Amount owed":"Balance","aBal","number",Math.round((+A.bal||0)*100)/100)
     +'<div class="two">'+fld("Statement day","aStmt","number",A.stmtDay||"")+fld("Due day","aDue","number",A.dueDay||"")+'</div>'
     +'<div class="hint">Statement and due day only matter for credit lines.</div>'
+    +'<label class="chk"><input type="checkbox" id="aRev"'+(A.rev?" checked":"")+'><span>Revolving line, I pay it off then draw again</span></label>'
+    +'<div class="hint">Turn this on for a line like an easy-credit wallet. It adds a redraw log and a ratchet card to the Loans tab, so you can watch each draw get smaller.</div>'
     +(id==="new"?"":'<div class="btnrow"><button class="btn dan" id="aDel">Delete this account</button></div>');
   openSheet(id==="new"?"New account":"Edit account",body,function(){
     A.name=$("#aName").value||"Account"; A.type=$("#aType").value; A.bal=Math.round((+$("#aBal").value||0)*100)/100;
     A.stmtDay=+$("#aStmt").value||null; A.dueDay=+$("#aDue").value||null;
+    A.rev = !!($("#aRev")&&$("#aRev").checked);
     if(id==="new") DB.accounts.push(A);
     return true;
   });

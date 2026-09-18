@@ -127,6 +127,7 @@ button.row:active{background:var(--surface-2)}
 .btn:active{opacity:.85}
 .btnrow{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .seg{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.drop{width:100%;margin-bottom:10px;padding:11px 12px;border:1px solid var(--rule);border-radius:12px;background:var(--card);color:var(--ink);font:inherit;font-size:14.5px;-webkit-appearance:none;appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);background-position:calc(100% - 17px) 50%,calc(100% - 12px) 50%;background-size:5px 5px,5px 5px;background-repeat:no-repeat}
 .seg button{background:var(--surface-2);border:1px solid var(--rule-2);color:var(--muted);border-radius:9px;padding:6px 11px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer}
 .rowopen{text-align:left;background:none;border:none;font:inherit;color:inherit;padding:0;cursor:pointer}
 .seg button[aria-pressed="true"]{border-color:var(--accent);color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent)}
@@ -215,7 +216,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 <script>
 "use strict";
 /* ===== Daily v1.1 — everything stays in this browser. No personal data in this file. ===== */
-var VER="1.35", KEY="daily.v1";
+var VER="1.36", KEY="daily.v1";
 var $=function(s,r){ return (r||document).querySelector(s); };
 var el=function(t){ return document.createElement(t); };
 var ACCENTS=["#1D6FA3","#1F6B4F","#8A3E9E","#C2740A","#A8341E","#2B6DB0","#0E7C86","#B03A6B"];
@@ -756,7 +757,7 @@ function renderMoney(){
         +'<div class="s">'+(nxt?("Next bill "+P2(by[nxt])+" on "+fmtD(nxt)+" "+parse(nxt).getFullYear()):("Due day "+(A.dueDay||"?")))+'</div></div>'
         +'<div class="v num">'+P2(+A.bal||0)+'</div><span class="chev">›</span></button>';
     });
-    h+='<div class="hint">Charging here never touches today’s number. It lands on the statement that closes next, and shows up as due on that statement’s due date.</div></div>';
+    h+='<div class="hint">This does not touch today’s number. It lands on the next statement and falls due then.</div></div>';
   }
 
   h+='<div class="card"><h2>Manage</h2>'
@@ -841,7 +842,7 @@ function openCap(id){
   var A=acct(id); if(!A) return;
   openSheet(A.name+" redraw cap",
     fldCalc("Never draw more than","capAmt",(+A.cap||0)||"")
-    +'<div class="hint">The whole plan rests on each redraw being smaller than the last. Set the number now, while it is easy, not at the counter on payday. The app will warn you if you go over it.</div>',
+    +'<div class="hint">Each redraw should be smaller than the last. Set the cap now, not on payday. You get a warning if you go over.</div>',
     function(){ A.cap=calc($("#capAmt").value)||0; return true; });
   wireCalc("capAmt");
 }
@@ -1000,7 +1001,7 @@ function renderProgress(){
         +'<div class="s">ends '+fmtD(x.ends)+' '+parse(x.ends).getFullYear()+' · frees '+P2(x.inst)+' a cutoff</div></div>'
         +'<div class="v num" style="color:var(--good)">+'+P2(cum)+'</div></div>';
     });
-    h+='<div class="hint">The right column is what comes back to you each cutoff once that loan and everything above it is done. Dates are the scheduled ones and do not move.</div>';
+    h+='<div class="hint">The right column is what you get back each cutoff once that loan and the ones above it are done.</div>';
   }
 
   h+='<div style="font-size:12px;font-weight:700;color:var(--muted);margin:20px 0 4px;text-transform:uppercase;letter-spacing:.04em">Each loan</div>';
@@ -1031,7 +1032,7 @@ function renderProgress(){
   return h;
 }
 var dueGroup="who";
-function sg3(k,label){ return '<button data-g="'+k+'" aria-pressed="'+(dueGroup===k)+'">'+label+'</button>'; }
+function sg3(k,label){ return '<option value="'+k+'"'+(dueGroup===k?" selected":"")+'>'+label+'</option>'; }
 function renderLoans(){
   var v=$("#v-loans"),h="",paid=0,left=0,last=null;
   var rows=DB.loans.map(function(L){
@@ -1057,7 +1058,7 @@ function renderLoans(){
 
   var due=commitments();
   h+='<div class="card"><h2>Due this cycle</h2>'
-    +'<div class="seg" id="dueSeg">'+sg3("who","By lender")+sg3("date","By date")+'</div>';
+    +'<select class="drop" id="dueSeg">'+sg3("who","Group by lender")+sg3("date","One line per payment")+'</select>';
   if(!due.length) h+='<div class="empty">Nothing due between '+fmtD(DB.cycle.start)+' and '+fmtD(DB.cycle.end)+'.</div>';
   else if(dueGroup==="who"){
     var bw={};
@@ -1078,7 +1079,7 @@ function renderLoans(){
         +'<div class="v num">'+P2(g.s)+'</div>'
         +'<button class="btn sec sm" data-pay="'+esc(JSON.stringify({ids:g.ids,name:k,amt:g.s,credit:g.credit||"",creditAmt:g.creditAmt||0,fixed:g.fixed||"",date:g.first}))+'">Paid</button></div>';
     });
-    h+='<div class="hint">One line per place you have to send money to. Tap Paid to tick off everything that lender is owed this cycle.</div>';
+    h+='<div class="hint">One line per place you send money to. Tap Paid to clear the whole lender at once.</div>';
   }
   else {
     due.forEach(function(c){
@@ -1091,8 +1092,8 @@ function renderLoans(){
 
   DB.accounts.forEach(function(A){ if(A.type==="credit" && A.rev) h+=ratchetCard(A); });
 
-  h+='<div class="card"><h2>Schedule</h2><div class="seg" id="loanSeg">'
-    +sg2("due","Upcoming")+sg2("progress","Progress")+sg2("month","By month")+sg2("lender","By lender")+sg2("paid","Paid")+'</div>';
+  h+='<div class="card"><h2>Schedule</h2><select class="drop" id="loanSeg">'
+    +sg2("due","Upcoming")+sg2("progress","Progress")+sg2("month","By month")+sg2("lender","By lender")+sg2("paid","Paid")+'</select>';
   if(!rows.length) h+='<div class="empty">No schedule yet.<br>Import your seed file in Setup, or add rows there.</div>';
   else if(loanFilter==="progress"){
     h+=renderProgress();
@@ -1134,17 +1135,17 @@ function renderLoans(){
     });
     if(list.length>60) h+='<div class="hint">Showing 60 of '+list.length+'.</div>';
   }
-  h+='<div class="hint">Tap any payment to edit or delete it. Card bills are named for the month you spent, and dated for when they are due.</div>'
+  h+='<div class="hint">Tap any payment to edit or delete it. Card bills are named for the month you spent, dated for when they are due.</div>'
     +'<div class="btnrow"><button class="btn sec" id="addLoan">Add a loan</button><button class="btn sec" id="addPay">One payment</button></div></div>';
 
   v.innerHTML=h;
-  $("#dueSeg").addEventListener("click",function(e){ var b=e.target.closest("button"); if(b){ dueGroup=b.dataset.g; renderLoans(); } });
+  $("#dueSeg").addEventListener("change",function(){ dueGroup=this.value; renderLoans(); });
   v.querySelectorAll("[data-pay]").forEach(function(b){
     b.addEventListener("click",function(){
       try{ openPayOff(JSON.parse(b.dataset.pay)); }catch(e){ toast("Could not open that"); }
     });
   });
-  $("#loanSeg").addEventListener("click",function(e){ var b=e.target.closest("button"); if(b){ loanFilter=b.dataset.k; renderLoans(); } });
+  $("#loanSeg").addEventListener("change",function(){ loanFilter=this.value; renderLoans(); });
   v.querySelectorAll("[data-toggle]").forEach(function(b){
     b.addEventListener("click",function(){
       var L=loanById(b.dataset.toggle); if(!L) return;
@@ -1182,7 +1183,7 @@ function planKey(x){ return x.id+"@"+x.date; }
 function planFor(n){
   var c=cycleAt(n), O=planGet(c.start);
   var days=between(c.start,c.end)+1;
-  var items=commitmentsIn(c.start,c.end,true), skip=O.skip||[], due=0;
+  var items=commitmentsIn(c.start,c.end), skip=O.skip||[], due=0;
   items.forEach(function(x){ x.skip=skip.indexOf(planKey(x))>-1; if(!x.skip) due+=x.amt; });
   (O.add||[]).forEach(function(x){
     items.push({id:x.id,kind:"extra",name:x.name,amt:+x.amt,date:x.date||c.start,skip:false,mine:true});
@@ -1237,11 +1238,11 @@ function renderPlanView(){
     +'<div class="g"><div class="t" style="font-weight:700">'+(ok?'Left over':'Short by')+'</div>'
     +'<div class="s">'+(ok?(P(p.left/p.days)+' a day spare'):'this plan does not balance yet')+'</div></div>'
     +'<div class="v num" style="font-size:18px;color:var('+(ok?'--good':'--alarm')+')">'+P(Math.abs(p.left))+'</div></div>';
-  if(!ok) h+='<div class="hint">Move a payment, trim the daily figure, or change what you expect to be paid, and watch this number. Borrowing '+P(-p.left)+' closes this cutoff and opens the same hole in the next one, plus the fee.</div>';
+  if(!ok) h+='<div class="hint">Move a payment, spend less a day, or change the pay. Borrowing '+P(-p.left)+' fixes this cutoff and reopens the same hole next one, plus the fee.</div>';
   h+='</div>';
 
   h+='<div class="card"><h2>What is due</h2>'
-    +'<div class="hint" style="margin-top:0;margin-bottom:8px">Tap a payment to take it out of this plan, to see what moving it would do. It stays in your real schedule either way.</div>';
+    +'<div class="hint" style="margin-top:0;margin-bottom:8px">Tap a payment to drop it from this plan. Your real schedule does not change.</div>';
   if(!p.items.length) h+='<div class="empty">Nothing scheduled in this window.</div>';
   p.items.forEach(function(x){
     h+='<button class="row'+(x.skip?" skip":"")+'" data-sk="'+esc(planKey(x))+'"'+(x.mine?' data-mine="'+x.id+'"':'')+'>'
@@ -1259,7 +1260,7 @@ function renderPlanView(){
       +'<div class="s">'+P(q.due)+' due'+(q.edited?' \u00b7 you edited this one':'')+'</div></div>'
       +'<div class="v num" style="color:var('+(good?'--good':'--alarm')+')">'+(good?'+':'')+P(q.left)+'</div></button>';
   }
-  h+='<div class="hint">Everything is an estimate you control. Credit-card balances are left out, because what you owe them then depends on what you spend between now and then.</div></div>';
+  h+='<div class="hint">Estimates you control. Card bills come from what you have already charged, so they grow as you spend.</div></div>';
 
   v.innerHTML=h;
   $("#planBack").addEventListener("click",function(){ VIEW="setup"; render(); });
@@ -1313,14 +1314,14 @@ function openPlanPay(){
   var p=planFor(planOff);
   planSheet("Pay for "+fmtD(p.start)+" \u2013 "+fmtD(p.end),
     fld("Amount you expect","ppay","number",p.pay)
-    +'<div class="hint">Your usual pay is '+P(+DB.cycle.income||0)+'. Change it for a cutoff you know is different \u2014 a 13th month, a deduction, unpaid days.</div>',
+    +'<div class="hint">Your usual pay is '+P(+DB.cycle.income||0)+'. Change it for a cutoff you know is different.</div>',
     function(O){ O.pay=+$("#ppay").value||0; return true; },"pay","Back to my usual pay");
 }
 function openPlanSav(){
   var p=planFor(planOff);
   planSheet("Savings for "+fmtD(p.start)+" \u2013 "+fmtD(p.end),
     fld("Set aside for savings","psav","number",p.sav)
-    +'<div class="hint">Your goals landing in this window add up to '+P(p.autoSav)+'. Put 0 if you plan to skip savings that cutoff, or more if you want to catch up.</div>',
+    +'<div class="hint">Your goals landing in this window add up to '+P(p.autoSav)+'. Put 0 to skip, or more to catch up.</div>',
     function(O){ O.sav=Math.max(0,+$("#psav").value||0); return true; },"sav","Back to my goals");
 }
 function openPlanOffice(){
@@ -1335,7 +1336,7 @@ function openPlanLiv(){
   var p=planFor(planOff);
   planSheet("Living, "+fmtD(p.start)+" \u2013 "+fmtD(p.end),
     fld("A day","pliv","number",Math.round(p.livDay))
-    +'<div class="hint">Your usual pace is '+P(p.autoLiv)+' a day, worked out from your last 60 days with loan payments left out. Over '+p.days+' days that is '+P(p.autoLiv*p.days)+'. Lower it to see what cutting back actually buys you.</div>',
+    +'<div class="hint">Your usual pace is '+P(p.autoLiv)+' a day, from your last 60 days. Over '+p.days+' days that is '+P(p.autoLiv*p.days)+'. Lower it to see what cutting back buys you.</div>',
     function(O){ O.livDay=Math.max(0,+$("#pliv").value||0); return true; },"livDay","Back to my usual pace");
 }
 function openPlanAdd(){
@@ -1344,7 +1345,7 @@ function openPlanAdd(){
     fld("What is it","paName","text","")
     +fld("Amount","paAmt","number","")
     +fld("Date","paDate","date",p.start)
-    +'<div class="hint">A one-off you know is coming that is not in your schedule yet \u2014 a trip, a gift, a fee, a renewal. It only lives inside this plan.</div>',
+    +'<div class="hint">A one-off that is not in your schedule yet. It only lives inside this plan.</div>',
     function(){
       var amt=+$("#paAmt").value||0; if(!amt){ toast("Enter an amount"); return false; }
       var O=planGet(p.start);
@@ -1353,7 +1354,7 @@ function openPlanAdd(){
       planPut(p.start,O); return true;
     });
 }
-function sg2(k,label){ return '<button data-k="'+k+'" aria-pressed="'+(loanFilter===k)+'">'+label+'</button>'; }
+function sg2(k,label){ return '<option value="'+k+'"'+(loanFilter===k?" selected":"")+'>'+label+'</option>'; }
 function openLoanPlan(){
   var body=fld("Lender","plLen","text","")+fld("Loan name","plNam","text","")
     +'<div class="two">'+fld("Number of payments","plN","number",6)+fld("Amount each","plAmt","number","")+'</div>'
@@ -1396,7 +1397,7 @@ function openPayOff(o){
     +sel("Paid from","poAcct",accts,pref)
     +fld("Date","poDate","date",todayISO())
     +'<label class="chk" style="margin-top:6px"><input type="checkbox" id="poTick"><span>Just tick it off, I already logged this payment</span></label>'
-    +'<div class="hint">This takes the money out of the account you pick. It does not count against your daily number, because a loan or a bill is already held back before the daily number is worked out.</div>',
+    +'<div class="hint">Comes out of the account you pick. It does not hit your daily number, because it was already held back.</div>',
     function(){
       var just=$("#poTick").checked, a=calc($("#poAmt").value)||0;
       if(!just){
@@ -1468,7 +1469,7 @@ function renderSetup(){
     +'<div class="hint" style="margin-top:0">Saves as you type. Nothing here deletes anything.</div>'
     +(cycleLooksOff()?'<div class="hint" style="margin-top:0;color:var(--amber)">These dates do not match the 15th and end of month. On this window the next payday lands on '+fmtD(nextCycle(DB.cycle,DB.settings.rule).start)+'.</div><div class="btnrow"><button class="btn sec" id="fixCyc">Snap to '+fmtD(cycleLooksOff().start)+' \u2013 '+fmtD(cycleLooksOff().end)+'</button></div>':'')
     +'<div class="btnrow"><button class="btn sec" id="planBtn">Plan a future cutoff \u203a</button></div>'
-    +'<div class="hint">Check a cutoff before it arrives: what is due, what you expect to be paid, and whether it covers itself. Change anything you like in there, none of it touches your real numbers.</div>'
+    +'<div class="hint">See what is due, what you get paid, and whether it covers itself. Nothing in there touches your real numbers.</div>'
     +'<div class="btnrow"><button class="btn sec" id="newCycle">Payday \u2014 move to next cycle</button></div>'
     +'<div class="hint">Tap on payday. Rolls the dates, picks up the loans due, unlocks savings. Balances and history stay.</div></div>';
 
@@ -1703,7 +1704,7 @@ function rollCycle(){
     +fld("This cycle ends","rcEnd","date",nc.end)
     +'<div class="two">'+fld("Amount received","rcPay","number",+DB.cycle.income||0)
     +sel("Into","rcAcct",cashA.length?cashA:[["","no cash account"]],DB.settings.payAcct||(cashA[0]||[""])[0])+'</div>'
-    +'<div class="hint" style="margin-top:-2px">This logs the pay as money in, so you do not have to add it yourself. Put 0 if you would rather log it manually.</div>' 
+    +'<div class="hint" style="margin-top:-2px">Logs the pay as money in. Put 0 to do it yourself.</div>' 
     +'<div class="hint" style="margin-top:0">'
     +(late
       ? 'Payroll was due '+fmtD(nc.start)+' and it is already '+fmtD(t)+'. Start the cycle on the day the money actually landed, so the days before it stay in the cycle that just ended.'
@@ -1792,7 +1793,7 @@ function doRoll(quiet){
 function openReserved(){
   openSheet("Set aside from past cycles",
     fld("Amount","rsv","number",reserved())
-    +'<div class="hint">Money that is still in your accounts but must not be budgeted. Leftovers land here at the end of each cycle, so a new cutoff only ever divides what that cutoff actually paid you. Lower this number if you decide to spend some of it.</div>',
+    +'<div class="hint">Money in your accounts that must not be budgeted. Leftovers land here each cycle. Lower it if you spend some.</div>',
     function(){ DB.reserved=Math.max(0,+$("#rsv").value||0); return true; });
 }
 function openAdjust(){
@@ -1903,7 +1904,7 @@ function openTxn(id,preKind){
     +sel("From","txAcct",accts,(T&&T.acct)?T.acct:(LT?LT.acct:DB.accounts[0].id))
     +'<div id="txToWrap">'+sel("To","txTo",dests,(T&&T.to)?T.to:(DB.accounts[1]||DB.accounts[0]).id)
       +fld("Transfer fee","txFee","number",(T&&T.fee)?T.fee:"")
-      +'<div class="hint" style="margin-top:-2px">Cash-in, cash-out or send-money charges. It comes out of the account you send from and counts as spending.</div>'+'</div>'
+      +'<div class="hint" style="margin-top:-2px">Cash-in, cash-out or send-money charges. Counts as spending.</div>'+'</div>'
     +'<div id="txBorrow">'
       +fld("Lender","bwLen","text","")
       +sel("How you repay it","bwMode",[["one","One payment, with a fee"],["inst","Monthly instalments"]],"one")
@@ -1913,7 +1914,7 @@ function openTxn(id,preKind){
         +sel("How often","bwFreq",[["monthly","Monthly"],["semi","15th and end of month"]],"monthly")+'</div>'
       +'<div id="bwFee" class="hint"></div>'
     +'</div>'
-    +'<div id="txPayHint" class="hint" style="margin-top:-2px">Use this for loans, bills and card payments. It leaves the account but does not count as spending, because it was already held back.</div>'
+    +'<div id="txPayHint" class="hint" style="margin-top:-2px">For loans, bills and card payments. Leaves the account, but is not spending.</div>'
     +fld("Date","txDate","date",T?T.date:(LT?LT.date:todayISO()))
     +fld("Note (optional)","txNote","text",T?T.note:"")
     +(T?'<div class="btnrow"><button class="btn dan" id="txDel">Delete this</button></div>':'');
@@ -2020,7 +2021,7 @@ function openAcct(id){
     +'<div class="two">'+fld("Statement day","aStmt","number",A.stmtDay||"")+fld("Due day","aDue","number",A.dueDay||"")+'</div>'
     +'<div class="hint">Statement and due day only matter for credit lines.</div>'
     +'<label class="chk"><input type="checkbox" id="aRev"'+(A.rev?" checked":"")+'><span>Revolving line, I pay it off then draw again</span></label>'
-    +'<div class="hint">Turn this on for a line like an easy-credit wallet. It adds a redraw log and a ratchet card to the Loans tab, so you can watch each draw get smaller.</div>'
+    +'<div class="hint">For a line you pay off then draw again. Adds a redraw log to the Loans tab.</div>'
     +(id==="new"?"":'<div class="btnrow"><button class="btn dan" id="aDel">Delete this account</button></div>');
   openSheet(id==="new"?"New account":"Edit account",body,function(){
     A.name=$("#aName").value||"Account"; A.type=$("#aType").value; A.bal=Math.round((+$("#aBal").value||0)*100)/100;
@@ -2074,7 +2075,7 @@ function openGoal(id){
     +'<div class="two">'+fld("Amount each time","gPer","number",G.perCycle)+fld("Goal total","gTar","number",G.target)+'</div>'
     +fld("Day of the month you pay it","gDay","number",goalDay(G))
     +fld("Saved so far","gBal","number",G.bal)
-    +'<div class="hint">Put 31 for the last day of the month and it follows short months on its own. Put 0 if you fund it every payday. It is only held back in the cycle that contains that day.</div>'
+    +'<div class="hint">Put 31 for the last day of the month. Put 0 to fund it every payday.</div>'
     +(id==="new"?"":'<div class="btnrow"><button class="btn dan" id="gDel">Delete</button></div>');
   openSheet(id==="new"?"New savings goal":"Edit goal",body,function(){
     G.name=$("#gName").value||"Goal"; G.perCycle=+$("#gPer").value||0; G.target=+$("#gTar").value||0; G.bal=+$("#gBal").value||0;
@@ -2088,7 +2089,7 @@ function cashAccts(){ return DB.accounts.filter(function(a){ return a.type==="ca
 function fundGoal(id){
   var G=DB.goals.filter(function(g){ return g.id===id; })[0]; if(!G) return;
   var body=fld("Amount","fgAmt","number",G.perCycle||0)+sel("Take it from","fgAcc",cashAccts(),(cashAccts()[0]||[""])[0])
-    +'<div class="hint">This moves real money. The account goes down, the goal goes up, and your daily number does not change because the savings were already held back.</div>';
+    +'<div class="hint">Real money. The account goes down, the goal goes up, your daily number stays put.</div>';
   openSheet("Fund "+G.name,body,function(){
     var a=+$("#fgAmt").value||0; if(!a){ toast("Enter an amount"); return false; }
     var A=acct($("#fgAcc").value);

@@ -10,6 +10,8 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Daily">
+<meta name="theme-color" id="tcolor" content="#F3F4F1">
+<style>html{background:#F3F4F1}@media (prefers-color-scheme:dark){html:not([data-theme="light"]){background:#15181A}}html[data-theme="dark"]{background:#15181A}html[data-theme="light"]{background:#F3F4F1}</style>
 <title>Daily</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -47,7 +49,10 @@ body{
   font-family:Manrope,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
   font-size:16px; line-height:1.45; -webkit-font-smoothing:antialiased;
   overscroll-behavior-y:none;
+  -webkit-touch-callout:none;
+  -webkit-user-select:none; user-select:none;
 }
+input,textarea,select,.num,.big,.hint{-webkit-user-select:text;user-select:text}
 .num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum","ss01";letter-spacing:-.01em}
 
 #app{max-width:560px;margin:0 auto;padding:calc(var(--safe-t) + 6px) 16px calc(var(--navh) + var(--safe-b) + 96px)}
@@ -58,7 +63,12 @@ body{
 .vhead.stack .sub{text-align:left;max-width:100%}
 .backrow{margin:0 0 14px}
 .backrow .btn{width:auto;padding:8px 14px;font-size:13.5px}
-.view{display:none} .view.on{display:block}
+.view{display:none} .view.on{display:block;animation:viewIn .2s ease-out}
+@keyframes viewIn{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+html{-webkit-tap-highlight-color:transparent}
+.row:active{background:var(--surface-2)}
+.btn:active,nav button:active,.seg button:active,.rowopen:active{opacity:.6}
+@media (prefers-reduced-motion:reduce){.view.on{animation:none}}
 
 /* ---- nav pinned to the very bottom ---- */
 nav{
@@ -216,7 +226,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 <script>
 "use strict";
 /* ===== Daily v1.1 — everything stays in this browser. No personal data in this file. ===== */
-var VER="1.36", KEY="daily.v1";
+var VER="1.37", KEY="daily.v1";
 var $=function(s,r){ return (r||document).querySelector(s); };
 var el=function(t){ return document.createElement(t); };
 var ACCENTS=["#1D6FA3","#1F6B4F","#8A3E9E","#C2740A","#A8341E","#2B6DB0","#0E7C86","#B03A6B"];
@@ -1242,13 +1252,24 @@ function renderPlanView(){
   h+='</div>';
 
   h+='<div class="card"><h2>What is due</h2>'
-    +'<div class="hint" style="margin-top:0;margin-bottom:8px">Tap a payment to drop it from this plan. Your real schedule does not change.</div>';
+    +'<div class="hint" style="margin-top:0;margin-bottom:8px">Tap a payment to drop it from this plan. Tap Paid to settle it for real, even before it is due.</div>';
   if(!p.items.length) h+='<div class="empty">Nothing scheduled in this window.</div>';
   p.items.forEach(function(x){
-    h+='<button class="row'+(x.skip?" skip":"")+'" data-sk="'+esc(planKey(x))+'"'+(x.mine?' data-mine="'+x.id+'"':'')+'>'
-      +'<div class="g"><div class="t">'+esc(x.name)+(x.mine?' <span class="pill cr">added</span>':'')+'</div>'
-      +'<div class="s">'+fmtD(x.date)+(x.skip?' \u00b7 not counted':'')+'</div></div>'
-      +'<div class="v num">'+P(x.amt)+'</div></button>';
+    h+='<div class="row'+(x.skip?" skip":"")+'">'
+      +'<button class="g rowopen" data-sk="'+esc(planKey(x))+'"'+(x.mine?' data-mine="'+x.id+'"':'')+'>'
+      +'<div class="t">'+esc(x.name)+(x.mine?' <span class="pill cr">added</span>':'')+'</div>'
+      +'<div class="s">'+fmtD(x.date)+(x.skip?' \u00b7 not counted':'')+'</div></button>'
+      +'<div class="v num">'+P(x.amt)+'</div>'
+      +(x.mine?'':'<button class="btn sec sm" data-pay="'+esc(JSON.stringify({
+          ids: x.kind==="loan"?[x.id]:[],
+          name: x.name,
+          amt: x.amt,
+          credit: x.kind==="credit"?String(x.id).split("@")[0]:"",
+          creditAmt: x.kind==="credit"?x.amt:0,
+          fixed: x.kind==="fixed"?x.id:"",
+          date: x.date
+        }))+'">Paid</button>')
+      +'</div>';
   });
   h+='<div class="btnrow"><button class="btn sec" id="plAdd">Add something</button>'
     +(p.edited?'<button class="btn sec" id="plReset">Reset this cutoff</button>':'')+'</div></div>';
@@ -1294,6 +1315,11 @@ function renderPlanView(){
     delete DB.plan[p.start];
     if(DB.planOff) delete DB.planOff[p.start];
     save(); renderPlanView(); toast("Back to the real numbers");
+  });
+  v.querySelectorAll("[data-pay]").forEach(function(b){
+    b.addEventListener("click",function(){
+      try{ openPayOff(JSON.parse(b.dataset.pay)); }catch(e){ toast("Could not open that"); }
+    });
   });
   v.querySelectorAll("[data-jump]").forEach(function(b){
     b.addEventListener("click",function(){ planOff=+b.dataset.jump; renderPlanView(); window.scrollTo(0,0); });
@@ -1397,7 +1423,9 @@ function openPayOff(o){
     +sel("Paid from","poAcct",accts,pref)
     +fld("Date","poDate","date",todayISO())
     +'<label class="chk" style="margin-top:6px"><input type="checkbox" id="poTick"><span>Just tick it off, I already logged this payment</span></label>'
-    +'<div class="hint">Comes out of the account you pick. It does not hit your daily number, because it was already held back.</div>',
+    +'<div class="hint">Comes out of the account you pick. It does not hit your daily number, because it was already held back.'
+      +((o.date && o.date>todayISO()) ? ' This one is not due until '+fmtD(o.date)+'. Paying it now is fine, it just clears early.' : '')
+    +'</div>',
     function(){
       var just=$("#poTick").checked, a=calc($("#poAmt").value)||0;
       if(!just){
@@ -2251,7 +2279,18 @@ function applyTheme(){
   if(t==="auto") document.documentElement.removeAttribute("data-theme");
   else document.documentElement.setAttribute("data-theme",t);
   document.documentElement.style.setProperty("--accent",DB.settings.accent||"#1D6FA3");
+  // the iOS status bar and the Android address bar take their colour from here
+  try{
+    var g=getComputedStyle(document.documentElement).getPropertyValue("--ground").trim();
+    var m=document.getElementById("tcolor");
+    if(m && g) m.setAttribute("content",g);
+  }catch(e){}
 }
+// follow the system when the theme is on auto
+try{
+  var mq=window.matchMedia("(prefers-color-scheme: dark)");
+  if(mq.addEventListener) mq.addEventListener("change",function(){ applyTheme(); });
+}catch(e){}
 
 /* ---------- misc ---------- */
 var toastT=null;

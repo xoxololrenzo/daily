@@ -5,7 +5,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
+<meta name="viewport" id="vp" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -207,6 +207,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
   <div class="view" id="v-setup"></div>
   <div class="view" id="v-plan"></div>
   <div class="view" id="v-sub"></div>
+  <div class="view" id="v-spend"></div>
 </div>
 
 <button class="fab on" id="fab" aria-label="Add spending">+</button>
@@ -226,7 +227,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 <script>
 "use strict";
 /* ===== Daily v1.1 — everything stays in this browser. No personal data in this file. ===== */
-var VER="1.37", KEY="daily.v1";
+var VER="1.38", KEY="daily.v1";
 var $=function(s,r){ return (r||document).querySelector(s); };
 var el=function(t){ return document.createElement(t); };
 var ACCENTS=["#1D6FA3","#1F6B4F","#8A3E9E","#C2740A","#A8341E","#2B6DB0","#0E7C86","#B03A6B"];
@@ -430,12 +431,15 @@ function creditDueFor(A,when){
   return onOrAfter(addD(close,1),D);
 }
 /* the statement that closes on `close` covers the day after the previous close */
+/* the statement closing on `close` runs from the same day one month earlier.
+   Spending ON the statement day lands on the NEXT statement, not the one closing. */
 function stmtFrom(close,S){
   var d=parse(close);
   d.setDate(1); d.setMonth(d.getMonth()-1);
   d.setDate(Math.min(S,lastDay(d.getFullYear(),d.getMonth())));
-  return addD(iso(d),1);
+  return iso(d);
 }
+function stmtClose(date,S){ return onOrAfter(addD(date,1),S); }
 /* one row per statement: what you spent, when it closed, when it is due */
 function creditBills(A){
   var S=+A.stmtDay||0, D=+A.dueDay||0;
@@ -447,14 +451,14 @@ function creditBills(A){
     if(T.kind==="inc"){ paid+=(+T.amt||0); return; }
     if(T.kind==="pay") return;
     var amt=(+T.amt||0)+(T.kind==="xfer"?(+T.fee||0):0);
-    var close = S ? onOrAfter(T.date,S) : onOrAfter(T.date,D);
+    var close = S ? stmtClose(T.date,S) : onOrAfter(T.date,D);
     if(!close) return;
     byClose[close]=(byClose[close]||0)+amt; spend+=amt;
   });
   // a balance that predates what you have logged is already on a closed statement
   var older=Math.round(((+A.bal||0)+paid-spend)*100)/100;
   if(older>0.005){
-    var c0 = S ? onOrAfter(addD(todayISO(),-1),S) : onOrAfter(todayISO(),D);
+    var c0 = S ? onOrAfter(todayISO(),S) : onOrAfter(todayISO(),D);
     if(c0){ byClose[c0]=(byClose[c0]||0)+older; }
   }
   var out=[];
@@ -599,11 +603,11 @@ var VIEW="today";
 var lastView=null;
 function render(){
   var keepY = (VIEW===lastView) ? (window.scrollY||window.pageYOffset||0) : 0;
-  ["today","money","cal","loans","setup","plan","sub"].forEach(function(v){ $("#v-"+v).classList.toggle("on",v===VIEW); });
-  var navFor = (VIEW==="plan"||VIEW==="sub") ? "setup" : VIEW;
+  ["today","money","cal","loans","setup","plan","sub","spend"].forEach(function(v){ $("#v-"+v).classList.toggle("on",v===VIEW); });
+  var navFor = (VIEW==="plan"||VIEW==="sub") ? "setup" : (VIEW==="spend" ? "money" : VIEW);
   document.querySelectorAll("nav button").forEach(function(b){ b.setAttribute("aria-current", b.dataset.v===navFor?"true":"false"); });
   $("#fab").classList.toggle("on", VIEW==="today"||VIEW==="money");
-  ({today:renderToday,money:renderMoney,cal:renderCal,loans:renderLoans,setup:renderSetup,plan:renderPlanView,sub:renderSub})[VIEW]();
+  ({today:renderToday,money:renderMoney,cal:renderCal,loans:renderLoans,setup:renderSetup,plan:renderPlanView,sub:renderSub,spend:renderSpend})[VIEW]();
   lastView=VIEW;
   window.scrollTo(0,keepY);
 }
@@ -734,6 +738,10 @@ function renderMoney(){
   var v=$("#v-money"),h="";
   h+='<div class="vhead"><h1>Envelopes</h1><span class="sub num">'+P2(onHand())+' total</span></div>';
 
+  h+='<div class="card" style="padding-top:4px;padding-bottom:4px">'
+    +'<button class="row" id="spOpen" style="border-bottom:none"><div class="g"><div class="t">Where it went ›</div>'
+    +'<div class="s">spending by category, envelope, account or note</div></div></button></div>';
+
   h+='<div class="card"><h2>Accounts</h2><div class="acctgrid">';
   DB.accounts.filter(function(a){ return a.type==="cash"; }).forEach(function(A){
     var neg=(+A.bal||0)<0;
@@ -767,7 +775,7 @@ function renderMoney(){
         +'<div class="s">'+(nxt?("Next bill "+P2(by[nxt])+" on "+fmtD(nxt)+" "+parse(nxt).getFullYear()):("Due day "+(A.dueDay||"?")))+'</div></div>'
         +'<div class="v num">'+P2(+A.bal||0)+'</div><span class="chev">›</span></button>';
     });
-    h+='<div class="hint">This does not touch today’s number. It lands on the next statement and falls due then.</div></div>';
+    h+='<div class="hint">Charging here does not touch today’s number. Anything you spend on the statement day itself goes on the <b>next</b> statement, not the one closing that day.</div></div>';
   }
 
   h+='<div class="card"><h2>Manage</h2>'
@@ -789,6 +797,114 @@ function renderMoney(){
   v.querySelectorAll("[data-env]").forEach(function(b){ b.addEventListener("click",function(){ openEnv(b.dataset.env); }); });
   var r=v.querySelector("[data-rsv]"); if(r) r.addEventListener("click",openReserved);
   $("#xferBtn").addEventListener("click",function(){ openTxn(null,"xfer"); });
+  $("#spOpen").addEventListener("click",function(){ openSpend("", "cat"); });
+}
+/* ---------- where it went: spending sliced by category, envelope, account or note ---------- */
+var SPR="cycle", SPG="cat", SPQ="", SPOPEN="";
+function spWindow(){
+  var d=parse(todayISO()), y=d.getFullYear(), m=d.getMonth();
+  if(SPR==="cycle") return {a:DB.cycle.start,b:DB.cycle.end,lbl:fmtD(DB.cycle.start)+" – "+fmtD(DB.cycle.end)};
+  if(SPR==="month") return {a:iso(new Date(y,m,1)),b:iso(new Date(y,m,lastDay(y,m))),lbl:MON[m]+" "+y};
+  if(SPR==="last"){
+    var p1=new Date(y,m-1,1), y2=p1.getFullYear(), m2=p1.getMonth();
+    return {a:iso(new Date(y2,m2,1)),b:iso(new Date(y2,m2,lastDay(y2,m2))),lbl:MON[m2]+" "+y2};
+  }
+  if(SPR==="q"){
+    var p3=new Date(y,m-2,1);
+    return {a:iso(p3),b:iso(new Date(y,m,lastDay(y,m))),lbl:"Last 3 months"};
+  }
+  return {a:"0000-01-01",b:"9999-12-31",lbl:"Everything you have logged"};
+}
+function spItems(){
+  var w=spWindow(), out=[], q=SPQ.trim().toLowerCase();
+  DB.txns.forEach(function(T){
+    if(!T.date || T.date<w.a || T.date>w.b) return;
+    if(T.kind==="inc" || T.kind==="pay") return;
+    var amt,note;
+    if(T.kind==="xfer"){ amt=+T.fee||0; note=((T.note||"Transfer")+" · fee"); }
+    else { amt=+T.amt||0; note=T.note||""; }
+    if(!(amt>0)) return;
+    var C=cat(T.cat), A=acct(T.acct), E=C?env(C.env):null;
+    var r={id:T.id,date:T.date,amt:amt,note:note,
+           cat:C?C.name:"Uncategorised", envn:E?E.name:"Uncategorised", acctn:A?A.name:"—"};
+    if(q && (r.note+" "+r.cat+" "+r.acctn+" "+r.envn).toLowerCase().indexOf(q)<0) return;
+    out.push(r);
+  });
+  out.sort(function(a,b){ return a.date<b.date?1:-1; });
+  return out;
+}
+function spKey(r){ return SPG==="cat"?r.cat : SPG==="env"?r.envn : SPG==="acct"?r.acctn : (r.note||"(nothing typed)"); }
+function spGroups(items){
+  var by={};
+  items.forEach(function(r){ var k=spKey(r); by[k]=by[k]||{n:0,s:0,rows:[]}; by[k].n++; by[k].s+=r.amt; by[k].rows.push(r); });
+  return Object.keys(by).sort(function(a,b){ return by[b].s-by[a].s; }).map(function(k){ return {k:k,n:by[k].n,s:by[k].s,rows:by[k].rows}; });
+}
+function spOut(){
+  var items=spItems(), gs=spGroups(items), tot=0, h="";
+  items.forEach(function(r){ tot+=r.amt; });
+  h+='<div class="row" style="border-top:2px solid var(--ink);border-bottom:none;padding-top:10px;margin-bottom:4px">'
+   +'<div class="g"><div class="t" style="font-weight:700">Total</div>'
+   +'<div class="s">'+items.length+' entr'+(items.length===1?"y":"ies")+'</div></div>'
+   +'<div class="v num">'+P2(tot)+'</div></div>';
+  if(!gs.length){ h+='<div class="empty">Nothing logged in this window.</div>'; return h; }
+  var peak=gs[0].s;
+  gs.forEach(function(G){
+    var w=peak?Math.round(G.s/peak*100):0, open=(SPOPEN===G.k);
+    h+='<button class="row" data-sp="'+esc(G.k)+'"><div class="g">'
+      +'<div class="t">'+esc(G.k)+'</div>'
+      +'<div class="s">'+G.n+' · '+Math.round(G.s/(tot||1)*100)+'% of the total</div>'
+      +'<div class="bar" style="margin-top:6px"><i style="width:'+w+'%"></i></div></div>'
+      +'<div class="v num">'+P2(G.s)+'</div><span class="chev">'+(open?"⌄":"›")+'</span></button>';
+    if(open){
+      G.rows.slice(0,40).forEach(function(r){
+        h+='<div class="row" style="padding-left:14px"><div class="g">'
+          +'<div class="t" style="font-weight:500">'+esc(r.note||r.cat)+'</div>'
+          +'<div class="s">'+fmtD(r.date)+' · '+esc(r.cat)+' · '+esc(r.acctn)+'</div></div>'
+          +'<div class="v num">'+P2(r.amt)+'</div></div>';
+      });
+      if(G.rows.length>40) h+='<div class="hint">Showing 40 of '+G.rows.length+'.</div>';
+    }
+  });
+  return h;
+}
+function spWireOut(v){
+  v.querySelectorAll("[data-sp]").forEach(function(b){
+    b.addEventListener("click",function(){
+      SPOPEN = (SPOPEN===b.dataset.sp) ? "" : b.dataset.sp;
+      var o=$("#spOut"); if(o){ o.innerHTML=spOut(); spWireOut(o); }
+    });
+  });
+}
+function openSpend(q,g){
+  if(q!=null) SPQ=q;
+  if(g) SPG=g;
+  SPOPEN=""; VIEW="spend"; render(); window.scrollTo(0,0);
+}
+function renderSpend(){
+  var v=$("#v-spend"), w=spWindow(), h="";
+  function o(val,lab,cur){ return '<option value="'+val+'"'+(cur===val?" selected":"")+'>'+lab+'</option>'; }
+  h+='<div class="vhead stack"><h1>Where it went</h1><span class="sub">'+esc(w.lbl)+'</span></div>'
+   +'<div class="btnrow backrow"><button class="btn sec" id="spBack">‹ Envelopes</button></div>'
+   +'<div class="card">'
+   +'<select class="drop" id="spRange">'
+     +o("cycle","This cutoff",SPR)+o("month","This month",SPR)+o("last","Last month",SPR)
+     +o("q","Last 3 months",SPR)+o("all","All time",SPR)+'</select>'
+   +'<select class="drop" id="spGroup">'
+     +o("cat","By category",SPG)+o("env","By envelope",SPG)+o("acct","By account",SPG)+o("note","By what you typed",SPG)+'</select>'
+   +'<label class="f"><span class="k">Search</span><input id="spQ" type="text" inputmode="search" autocomplete="off" placeholder="KFC, office, Starbucks…" value="'+esc(SPQ)+'"></label>'
+   +'<div id="spOut">'+spOut()+'</div>'
+   +'<div class="hint">Card spending counts here even though it has not left your account yet. Loan and bill payments do not, because they were held back before the daily number.</div>'
+   +'</div>';
+  v.innerHTML=h;
+  $("#spBack").addEventListener("click",function(){ VIEW="money"; render(); window.scrollTo(0,0); });
+  $("#spRange").addEventListener("change",function(){ SPR=this.value; SPOPEN=""; renderSpend(); });
+  $("#spGroup").addEventListener("change",function(){ SPG=this.value; SPOPEN=""; renderSpend(); });
+  var qi=$("#spQ");
+  qi.addEventListener("input",function(){
+    SPQ=this.value; SPOPEN="";
+    var out=$("#spOut"); if(out){ out.innerHTML=spOut(); spWireOut(out); }
+  });
+  spWireOut(v);
 }
 function envSpent(eid){
   var s=0;
@@ -899,9 +1015,12 @@ function ratchetCard(A){
 function openBal(id){
   var A=acct(id);
   openSheet(A.name, fld(A.type==="credit"?"Amount owed":"Balance now","bAmt","number",Math.round((+A.bal||0)*100)/100)
-    +'<div class="hint">Centavos are kept. Type the exact figure your bank app shows.</div>', function(){
+    +'<div class="hint">Centavos are kept. Type the exact figure your bank app shows.</div>'
+    +'<div class="btnrow"><button class="btn sec" id="bSpend">What I spent from here</button></div>', function(){
     A.bal=Math.round((+$("#bAmt").value||0)*100)/100; return true;
   });
+  var sb=$("#bSpend");
+  if(sb) sb.addEventListener("click",function(){ closeSheet(); openSpend(A.name,"cat"); });
 }
 
 /* ---------- CALENDAR ---------- */
@@ -1868,6 +1987,9 @@ function fitSheet(){
   var s=$("#sheet"); if(!s.classList.contains("on")) return;
   if(vv.scale && vv.scale>1.01){ s.style.bottom=""; s.style.maxHeight=""; return; }
   var kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+  // iOS puts its own done/next toolbar above the keyboard and does not always
+  // count it, so leave a little air under the Save row
+  if(kb>0) kb += 10;
   s.style.bottom = kb+"px";
   s.style.maxHeight = Math.max(220, Math.round(vv.height-36))+"px";
 }
@@ -1875,9 +1997,20 @@ if(window.visualViewport){
   window.visualViewport.addEventListener("resize",fitSheet);
   window.visualViewport.addEventListener("scroll",fitSheet);
 }
+/* iOS still rescales on focus unless scaling is switched off for the moment
+   the field is live. Turning it back on afterwards keeps pinch-zoom working. */
+var VPBASE="width=device-width,initial-scale=1,viewport-fit=cover";
+function vpLock(on){
+  var m=document.getElementById("vp"); if(!m) return;
+  m.setAttribute("content", VPBASE + (on ? ",maximum-scale=1,user-scalable=no" : ",maximum-scale=1"));
+}
+document.addEventListener("focusout",function(e){
+  if(e.target && e.target.closest && e.target.closest("#sheet")) setTimeout(function(){ vpLock(false); },60);
+});
 document.addEventListener("focusin",function(e){
   var s=$("#sheet"); if(!s.classList.contains("on")) return;
   if(!e.target||!e.target.closest||!e.target.closest("#sheet")) return;
+  vpLock(true);
   setTimeout(function(){
     fitSheet();
     // scroll inside the sheet only, never the page: moving the page is what

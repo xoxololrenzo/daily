@@ -227,7 +227,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 <script>
 "use strict";
 /* ===== Daily v1.1 — everything stays in this browser. No personal data in this file. ===== */
-var VER="1.38", KEY="daily.v1";
+var VER="1.39", KEY="daily.v1";
 var $=function(s,r){ return (r||document).querySelector(s); };
 var el=function(t){ return document.createElement(t); };
 var ACCENTS=["#1D6FA3","#1F6B4F","#8A3E9E","#C2740A","#A8341E","#2B6DB0","#0E7C86","#B03A6B"];
@@ -856,13 +856,13 @@ function spOut(){
       +'<div class="bar" style="margin-top:6px"><i style="width:'+w+'%"></i></div></div>'
       +'<div class="v num">'+P2(G.s)+'</div><span class="chev">'+(open?"⌄":"›")+'</span></button>';
     if(open){
-      G.rows.slice(0,40).forEach(function(r){
-        h+='<div class="row" style="padding-left:14px"><div class="g">'
+      G.rows.slice(0,120).forEach(function(r){
+        h+='<button class="row" data-edit="'+r.id+'" style="padding-left:14px"><div class="g">'
           +'<div class="t" style="font-weight:500">'+esc(r.note||r.cat)+'</div>'
-          +'<div class="s">'+fmtD(r.date)+' · '+esc(r.cat)+' · '+esc(r.acctn)+'</div></div>'
-          +'<div class="v num">'+P2(r.amt)+'</div></div>';
+          +'<div class="s">'+fmtD(r.date)+' '+parse(r.date).getFullYear()+' · '+esc(r.cat)+' · '+esc(r.acctn)+'</div></div>'
+          +'<div class="v num">'+P2(r.amt)+'</div><span class="chev">›</span></button>';
       });
-      if(G.rows.length>40) h+='<div class="hint">Showing 40 of '+G.rows.length+'.</div>';
+      if(G.rows.length>120) h+='<div class="hint">Showing 120 of '+G.rows.length+'. Narrow it with the search box.</div>';
     }
   });
   return h;
@@ -873,6 +873,10 @@ function spWireOut(v){
       SPOPEN = (SPOPEN===b.dataset.sp) ? "" : b.dataset.sp;
       var o=$("#spOut"); if(o){ o.innerHTML=spOut(); spWireOut(o); }
     });
+  });
+  // any entry, however old, opens the same edit sheet as a recent one
+  v.querySelectorAll("[data-edit]").forEach(function(b){
+    b.addEventListener("click",function(){ openTxn(b.dataset.edit); });
   });
 }
 function openSpend(q,g){
@@ -893,7 +897,7 @@ function renderSpend(){
      +o("cat","By category",SPG)+o("env","By envelope",SPG)+o("acct","By account",SPG)+o("note","By what you typed",SPG)+'</select>'
    +'<label class="f"><span class="k">Search</span><input id="spQ" type="text" inputmode="search" autocomplete="off" placeholder="KFC, office, Starbucks…" value="'+esc(SPQ)+'"></label>'
    +'<div id="spOut">'+spOut()+'</div>'
-   +'<div class="hint">Card spending counts here even though it has not left your account yet. Loan and bill payments do not, because they were held back before the daily number.</div>'
+   +'<div class="hint">Tap a group to open it, then tap any entry to edit or delete it, however old it is. Card spending counts here even though it has not left your account yet. Loan and bill payments do not, because they were held back before the daily number.</div>'
    +'</div>';
   v.innerHTML=h;
   $("#spBack").addEventListener("click",function(){ VIEW="money"; render(); window.scrollTo(0,0); });

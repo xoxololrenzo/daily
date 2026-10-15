@@ -227,7 +227,7 @@ body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
 <script>
 "use strict";
 /* ===== Daily v1.1 — everything stays in this browser. No personal data in this file. ===== */
-var VER="1.39", KEY="daily.v1";
+var VER="1.40", KEY="daily.v1";
 var $=function(s,r){ return (r||document).querySelector(s); };
 var el=function(t){ return document.createElement(t); };
 var ACCENTS=["#1D6FA3","#1F6B4F","#8A3E9E","#C2740A","#A8341E","#2B6DB0","#0E7C86","#B03A6B"];
@@ -446,13 +446,20 @@ function creditBills(A){
   if(!D) return [];
   var byClose={}, spend=0, paid=0;
   DB.txns.forEach(function(T){
+    // a real payment clears the oldest statement first
     if(T.kind==="pay" && T.to===A.id){ paid+=(+T.amt||0); return; }
     if(T.acct!==A.id) return;
-    if(T.kind==="inc"){ paid+=(+T.amt||0); return; }
     if(T.kind==="pay") return;
-    var amt=(+T.amt||0)+(T.kind==="xfer"?(+T.fee||0):0);
     var close = S ? stmtClose(T.date,S) : onOrAfter(T.date,D);
     if(!close) return;
+    // money landing IN a credit account (a draw you logged, a refund) belongs to
+    // the statement it happened on, not to the oldest one still open
+    if(T.kind==="inc"){
+      var a=(+T.amt||0);
+      byClose[close]=(byClose[close]||0)-a; spend-=a;
+      return;
+    }
+    var amt=(+T.amt||0)+(T.kind==="xfer"?(+T.fee||0):0);
     byClose[close]=(byClose[close]||0)+amt; spend+=amt;
   });
   // a balance that predates what you have logged is already on a closed statement
